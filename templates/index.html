@@ -1,268 +1,301 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIEM Dashboard</title>
-    <!-- Tailwind CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <!-- Chart.js -->
+    <title>SecOps-AI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: { 900: '#0f172a', 800: '#1e293b', accent: '#06b6d4' }
+                    }
+                }
+            }
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Socket.io -->
     <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
+    <style>
+        /* Custom Scrollbar for a native app feel */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-900">
-    <!-- Navbar -->
-    <nav class="bg-gray-800 text-white">
-        <div class="container mx-auto px-4 py-4">
-            <a class="text-xl font-semibold" href="#">SIEM Dashboard</a>
+<body class="bg-slate-900 text-slate-300 font-sans antialiased selection:bg-cyan-500 selection:text-white">
+    
+    <nav class="bg-slate-950 border-b border-cyan-500/30 sticky top-0 z-50 shadow-md">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <a class="text-2xl font-bold text-cyan-400 tracking-wider flex items-center gap-3" href="#">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                SECOPS-AI by Zaid
+            </a>
+            <div class="flex items-center gap-2">
+                <span class="flex h-3 w-3 relative">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span class="text-emerald-400 text-sm font-bold uppercase tracking-widest">System Live</span>
+            </div>
         </div>
     </nav>
 
-    <!-- Main Container -->
-    <div class="container mx-auto px-4 py-6">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Systeminformationen -->
-            <div class="bg-white shadow-md rounded-lg p-6">
-                <h5 class="text-xl font-semibold mb-4">Systeminformationen</h5>
-                <ul id="system-info" class="space-y-2">
-                    <!-- Dynamische Inhalte von fetchSystemInfo() -->
-                </ul>
+    <div class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 transition hover:border-cyan-500/50">
+                <h5 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                    Hardware Telemetry
+                </h5>
+                <ul id="system-info" class="space-y-3 text-sm">
+                    </ul>
             </div>
 
-            <!-- System Metriken Charts -->
-            <div class="bg-white shadow-md rounded-lg p-6">
-                <h5 class="text-xl font-semibold mb-4">System Metriken</h5>
-                <canvas id="cpuChart" height="100"></canvas>
-                <div class="grid grid-cols-2 gap-4 mt-6 justify-items-center">
-                    <canvas id="memoryChart" width="352" height="200" style="box-sizing: border-box; height: 200px;"></canvas>
-                    <canvas id="diskChart" width="352" height="200" style="box-sizing: border-box; height: 200px;"></canvas>
+            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 lg:col-span-1">
+                <h5 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                    Resource Saturation
+                </h5>
+                <div class="mb-4">
+                    <canvas id="cpuChart" height="120"></canvas>
+                </div>
+                <div class="grid grid-cols-2 gap-4 justify-items-center">
+                    <canvas id="memoryChart" height="120"></canvas>
+                    <canvas id="diskChart" height="120"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 flex flex-col h-[500px]">
+                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                    AI Triage Operator
+                </h5>
+                
+                <div class="ai-chat-box flex-grow overflow-y-auto bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 font-sans text-sm shadow-inner" id="chat-box">
+                    <div class="text-center text-slate-600 mb-4 text-xs tracking-wider uppercase mt-2 border-b border-slate-800 pb-2">Session Initialized</div>
                 </div>
                 
-            </div>
-
-            <!-- AI Chat -->
-            <div class="bg-white shadow-md rounded-lg p-6">
-                <h5 class="text-xl font-semibold mb-4">AI Chat</h5>
-                <div class="ai-chat-box h-64 overflow-y-auto bg-gray-50 p-4 rounded-md" id="chat-box">
-                    <div class="text-gray-500">Chatverlauf</div>
-                </div>
-                <div class="mt-4">
-                    <input type="text" class="w-full border border-gray-300 rounded-md p-2" id="chat-input" placeholder="Nachricht eingeben...">
-                    <button class="w-full bg-blue-500 text-white py-2 mt-2 rounded-md" onclick="sendMessage()">Senden</button>
+                <div class="mt-auto relative">
+                    <input type="text" class="w-full bg-slate-900 border border-slate-600 text-slate-200 rounded-lg pl-4 pr-24 py-3 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition shadow-inner" id="chat-input" placeholder="Query threat intel..." onkeypress="if(event.key === 'Enter') sendMessage()">
+                    <button class="absolute right-2 top-2 bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-1.5 rounded-md font-bold tracking-wide transition-colors text-sm shadow-md" onclick="sendMessage()">SEND</button>
                 </div>
             </div>
         </div>
 
-                <!-- Logs von verschiedenen Quellen -->
-        <div class="bg-white shadow-md rounded-lg p-6 mt-6">
-            <h5 class="text-xl font-semibold mb-4">Ereignisprotokolle</h5>
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm text-left">
-                    <thead class="border-b">
-                        <tr>
-                            <th class="px-4 py-2">Quelle</th>
-                            <th class="px-4 py-2">Zeit</th>
-                            <th class="px-4 py-2">Nachricht</th>
-                            <th class="px-4 py-2">Schweregrad</th>
-                        </tr>
-                    </thead>
-                    <tbody id="event-logs">
-                        <!-- Dynamische Inhalte -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-            <!-- Netzwerkpakete -->
-            <div class="bg-white shadow-md rounded-lg p-6">
-                <h5 class="text-xl font-semibold mb-4">Netzwerkpakete</h5>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm text-left">
-                        <thead class="border-b">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            
+            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg overflow-hidden flex flex-col">
+                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    Live Network Traffic
+                </h5>
+                <div class="overflow-x-auto flex-grow">
+                    <table class="w-full text-sm text-left whitespace-nowrap">
+                        <thead class="text-xs uppercase bg-slate-900/50 text-slate-400 border-b border-slate-700">
                             <tr>
-                                <th class="px-4 py-2">IP-Adresse</th>
-                                <th class="px-4 py-2">Quelle</th>
-                                <th class="px-4 py-2">Details</th>
-                                <th class="px-4 py-2">Blacklisted</th>
-                                <th class="px-4 py-2">Angriffe</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider">IP Address</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider">Source</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider hidden md:table-cell">Details</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider text-center">Threat</th>
                             </tr>
                         </thead>
-                        <tbody id="network-requests">
-                            <!-- Dynamische Inhalte -->
-                        </tbody>
+                        <tbody id="network-requests" class="divide-y divide-slate-700/50 text-slate-300">
+                            </tbody>
                     </table>
                 </div>
-                <!-- Paginierungsknöpfe -->
-                <div class="flex justify-between mt-4">
-                    <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded-md" id="network-prev">Vorherige</button>
-                    <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded-md" id="network-next">Nächste</button>
+                <div class="flex justify-between mt-4 pt-4 border-t border-slate-700">
+                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="network-prev">Previous</button>
+                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="network-next">Next</button>
                 </div>
             </div>
 
-            <!-- System Logs -->
-            <div class="bg-white shadow-md rounded-lg p-6">
-                <h5 class="text-xl font-semibold mb-4">System Logs</h5>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm text-left">
-                        <thead class="border-b">
+            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg overflow-hidden flex flex-col">
+                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    System Event Matrix
+                </h5>
+                <div class="overflow-x-auto flex-grow">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs uppercase bg-slate-900/50 text-slate-400 border-b border-slate-700">
                             <tr>
-                                <th class="px-4 py-2">Zeit</th>
-                                <th class="px-4 py-2">Log</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider w-1/4">Timestamp</th>
+                                <th class="px-4 py-3 font-semibold tracking-wider">Forensic Log</th>
                             </tr>
                         </thead>
-                        <tbody id="log-list">
-                            <!-- Dynamische Inhalte -->
-                        </tbody>
+                        <tbody id="log-list" class="divide-y divide-slate-700/50 text-slate-300 font-mono text-xs">
+                            </tbody>
                     </table>
                 </div>
-                <!-- Paginierungsknöpfe -->
-                <div class="flex justify-between mt-4">
-                    <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded-md" id="logs-prev">Vorherige</button>
-                    <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded-md" id="logs-next">Nächste</button>
+                <div class="flex justify-between mt-4 pt-4 border-t border-slate-700">
+                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="logs-prev">Previous</button>
+                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="logs-next">Next</button>
                 </div>
             </div>
         </div>
     </div>
 
-    
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
-
-    <!-- Chart.js Metriken Update -->
     <script>
-      const cpuChartCtx = document.getElementById('cpuChart').getContext('2d');
+        // Set Chart.js Defaults for Dark Mode
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = '#334155';
+        Chart.defaults.font.family = "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+        const cpuChartCtx = document.getElementById('cpuChart').getContext('2d');
         const memoryChartCtx = document.getElementById('memoryChart').getContext('2d');
         const diskChartCtx = document.getElementById('diskChart').getContext('2d');
 
-        // CPU Chart bleibt als Linienchart
+        // CPU Line Chart (Styled to look like a neon area graph)
         const cpuChart = new Chart(cpuChartCtx, {
             type: 'line',
             data: {
                 labels: [],
-                datasets: [{ label: 'CPU Usage (%)', data: [], borderColor: 'rgb(75, 192, 192)', tension: 0.1 }]
+                datasets: [{ 
+                    label: 'CPU Usage (%)', 
+                    data: [], 
+                    borderColor: '#0ea5e9', 
+                    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
             },
-            options: { scales: { y: { beginAtZero: true, max: 100 } } }
+            options: { 
+                scales: { 
+                    y: { beginAtZero: true, max: 100, grid: { color: '#334155', drawBorder: false } },
+                    x: { grid: { display: false }, ticks: { display: false } }
+                },
+                plugins: { legend: { display: false } },
+                maintainAspectRatio: false
+            }
         });
 
-        // Memory Chart als Doughnut
+        // Memory Doughnut Chart
         const memoryChart = new Chart(memoryChartCtx, {
             type: 'doughnut',
             data: {
                 labels: ['Used', 'Available'],
                 datasets: [{
-                    data: [0, 100], // Initialwerte
-                    backgroundColor: ['rgb(54, 162, 235)', 'rgb(200, 200, 200)'],
+                    data: [0, 100], 
+                    backgroundColor: ['#8b5cf6', '#0f172a'],
+                    borderWidth: 0,
+                    hoverOffset: 4
                 }]
             },
-            options: {
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.label + ': ' + context.raw + '%';
-                            }
-                        }
-                    }
-                },
-                responsive: true,
-                maintainAspectRatio: false,
-            }
+            options: { cutout: '75%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
         });
 
-        // Disk Chart als Doughnut
+        // Disk Doughnut Chart
         const diskChart = new Chart(diskChartCtx, {
             type: 'doughnut',
             data: {
                 labels: ['Used', 'Available'],
                 datasets: [{
-                    data: [0, 100], // Initialwerte
-                    backgroundColor: ['rgb(255, 99, 132)', 'rgb(200, 200, 200)'],
+                    data: [0, 100], 
+                    backgroundColor: ['#10b981', '#0f172a'],
+                    borderWidth: 0,
+                    hoverOffset: 4
                 }]
             },
-            options: {
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return context.label + ': ' + context.raw + '%';
-                            }
-                        }
-                    }
-                },
-                responsive: true,
-                maintainAspectRatio: false,
-            }
+            options: { cutout: '75%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
         });
 
+        // Function to push live data to charts
         function updateCharts(cpu, memory, disk) {
             const timeLabel = new Date().toLocaleTimeString();
-
-            // CPU Chart aktualisieren
             cpuChart.data.labels.push(timeLabel);
             cpuChart.data.datasets[0].data.push(cpu);
-            if (cpuChart.data.labels.length > 20) cpuChart.data.labels.shift();
-            if (cpuChart.data.datasets[0].data.length > 20) cpuChart.data.datasets[0].data.shift();
-            cpuChart.update();
+            if (cpuChart.data.labels.length > 20) {
+                cpuChart.data.labels.shift();
+                cpuChart.data.datasets[0].data.shift();
+            }
+            cpuChart.update('none');
 
-            // Memory Chart aktualisieren
             memoryChart.data.datasets[0].data = [memory, 100 - memory];
-            memoryChart.update();
+            memoryChart.update('none');
 
-            // Disk Chart aktualisieren
             diskChart.data.datasets[0].data = [disk, 100 - disk];
-            diskChart.update();
+            diskChart.update('none');
         }
 
-        // WebSocket-Verbindung zu Flask-Backend
-        const socket = io();  // Verbindet sich mit dem Backend, das auf Port 5000 läuft
+        // Initialize WebSockets
+        const socket = io();  
 
-        // Empfange Systemmetriken und aktualisiere die Charts und das UI
+        // Listen for live system metrics
         socket.on('update_metrics', (data) => {
-            console.log("Received system metrics:", data); // Debugging
             updateCharts(data.cpu_usage, data.memory_usage, data.disk_usage);
-
-            // Aktualisiere die System-Info-Liste
             const systemInfoList = document.getElementById('system-info');
             systemInfoList.innerHTML = `
-                <li class="list-group-item">CPU Frequenz: ${data.cpu_frequency} MHz</li>
-                <li class="list-group-item">CPU Kerne: ${data.cpu_cores}</li>
-                <li class="list-group-item">CPU Nutzung: ${data.cpu_usage}%</li>
-                <li class="list-group-item">GPU Nutzung: ${data.gpu_usage}</li>
-                <li class="list-group-item">GPU Speicher genutzt: ${data.gpu_memory_used}</li>
-                <li class="list-group-item">GPU Gesamtspeicher: ${data.gpu_memory_total}</li>
-                <li class="list-group-item">Power Nutzung: ${data.power_usage}%</li>
-                <li class="list-group-item">Gesamtspeicher: ${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</li>
-                <li class="list-group-item">Gesamtdisk: ${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</li>
+                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Frequency</span> <span class="text-cyan-400 font-mono">${data.cpu_frequency} MHz</span></li>
+                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Logical Cores</span> <span class="text-cyan-400 font-mono">${data.cpu_cores}</span></li>
+                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Usage</span> <span class="text-cyan-400 font-mono">${data.cpu_usage}%</span></li>
+                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Total RAM</span> <span class="text-purple-400 font-mono">${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</span></li>
+                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Disk Space</span> <span class="text-emerald-400 font-mono">${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</span></li>
+                <li class="flex justify-between pt-1"><span>GPU Status</span> <span class="text-slate-400 font-mono text-xs">VRAM: ${data.gpu_memory_used}</span></li>
             `;
         });
 
-        // Empfange neue Netzwerkpakete und zeige sie an
+        // Listen for live network packets
         socket.on('new_network_request', (request) => {
             const networkRequestsList = document.getElementById('network-requests');
+            const isBlacklisted = request.blacklisted === 'Yes';
+            const threatBadge = isBlacklisted 
+                ? `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">Blocked</span>` 
+                : `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/50">Clean</span>`;
+
             networkRequestsList.innerHTML = `
-                <tr>
-                    <td>${request.ip}</td>
-                    <td>${request.country}</td>
-                    <td>${request.summary}</td>
-                    <td>${request.blacklisted}</td>
-                    <td>${request.attacks || 0}</td>
+                <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
+                    <td class="px-4 py-3 font-mono text-cyan-400">${request.ip}</td>
+                    <td class="px-4 py-3 text-slate-300 truncate max-w-[150px]">${request.country}</td>
+                    <td class="px-4 py-3 text-slate-400 hidden md:table-cell text-xs truncate max-w-[200px]" title="${request.summary}">${request.summary}</td>
+                    <td class="px-4 py-3 text-center">${threatBadge}</td>
                 </tr>` + networkRequestsList.innerHTML;
         });
 
-        // Empfange neue Logs und zeige sie an
+        // Listen for live database logs
         socket.on('new_log', (log) => {
             const logList = document.getElementById('log-list');
-            logList.innerHTML = `<tr><td>${log.timestamp}</td><td>${log.log}</td></tr>` + logList.innerHTML;
+            const timeStr = log.timestamp.split(' ')[1] || log.timestamp;
+            logList.innerHTML = `
+                <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
+                    <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${timeStr}</td>
+                    <td class="px-4 py-2 text-cyan-100/70">${log.log}</td>
+                </tr>` + logList.innerHTML;
         });
 
-        // Funktion zum Senden von Nachrichten an den Server
+        // AI Chat Functionality
         function sendMessage() {
-            const message = document.getElementById('chat-input').value;
+            const inputField = document.getElementById('chat-input');
+            const message = inputField.value.trim();
+
             if (message) {
-                document.getElementById('chat-box').innerHTML += `<div><strong>Du:</strong> ${message}</div>`;
+                const chatBox = document.getElementById('chat-box');
+                
+                // Append Operator Message (Right aligned, Cyan bubble)
+                chatBox.innerHTML += `
+                    <div class="mb-4 text-right">
+                        <span class="bg-cyan-900/60 border border-cyan-700/50 text-cyan-50 px-4 py-2 rounded-2xl rounded-tr-sm inline-block text-left shadow-lg max-w-[85%]">
+                            ${message}
+                        </span>
+                    </div>`;
+                inputField.value = ''; 
+
+                // Append Loading Animation
+                const loadingId = 'loading-' + Date.now();
+                chatBox.innerHTML += `
+                    <div id="${loadingId}" class="mb-4 flex items-center gap-3 text-slate-400 text-xs tracking-wider uppercase font-semibold">
+                        <svg class="animate-spin h-4 w-4 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Analyzing Telemetry Matrix...
+                    </div>`;
+                chatBox.scrollTop = chatBox.scrollHeight; 
+
+                // Network Request to Backend
                 fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -270,22 +303,45 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    const reply = data.response || "Keine Antwort erhalten.";
-                    document.getElementById('chat-box').innerHTML += `<div><strong>AI:</strong> ${reply}</div>`;
-                    document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
+                    const loadingElement = document.getElementById(loadingId);
+                    if (loadingElement) loadingElement.remove();
+
+                    let reply = data.response || data.message || "No response received from model.";
+                    
+                    // Simple Markdown parser for bold text (**text**)
+                    reply = reply.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
+                    
+                    // Append AI Response (Left aligned, Slate bubble with icon)
+                    chatBox.innerHTML += `
+                        <div class="mb-4 flex flex-col items-start">
+                            <span class="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-widest mb-1 ml-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                SecOps-AI
+                            </span>
+                            <span class="bg-slate-800/80 border border-slate-600/50 text-slate-300 px-5 py-4 rounded-2xl rounded-tl-sm inline-block shadow-lg max-w-[95%] leading-relaxed">
+                                ${reply}
+                            </span>
+                        </div>`;
+                    chatBox.scrollTop = chatBox.scrollHeight;
                 })
                 .catch(error => {
-                    console.error("Fehler bei der AI-Anfrage:", error);
-                    document.getElementById('chat-box').innerHTML += `<div><strong>AI:</strong> Fehler bei der Anfrage.</div>`;
+                    console.error("Error processing AI request:", error);
+                    const loadingElement = document.getElementById(loadingId);
+                    if (loadingElement) loadingElement.remove();
+                    
+                    chatBox.innerHTML += `
+                        <div class="mb-4 text-left">
+                            <span class="bg-red-900/20 border border-red-700/50 text-red-400 px-4 py-2 rounded-2xl rounded-tl-sm inline-block shadow-lg text-sm">
+                                <strong>System Error:</strong> Disconnected from AI interface.
+                            </span>
+                        </div>`;
+                    chatBox.scrollTop = chatBox.scrollHeight;
                 });
-                document.getElementById('chat-input').value = '';
             }
         }
 
-
-        // Netzwerk-Anfragen anzeigen
+        // Pagination functionality for tables
         let currentNetworkPage = 1;
-
         function fetchNetworkRequests(page = 1) {
             fetch(`/network-requests?page=${page}`)
                 .then(response => response.json())
@@ -293,34 +349,31 @@
                     const networkRequestsList = document.getElementById('network-requests');
                     networkRequestsList.innerHTML = '';
                     data.forEach(request => {
+                        const isBlacklisted = request.blacklisted === 'Yes';
+                        const threatBadge = isBlacklisted 
+                            ? `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">Blocked</span>` 
+                            : `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/50">Clean</span>`;
+                        
                         networkRequestsList.innerHTML += `
-                            <tr>
-                                <td>${request.ip}</td>
-                                <td>${request.country}</td>
-                                <td>${request.summary}</td>
-                                <td>${request.blacklisted}</td>
-                                <td>${request.attacks || 0}</td>
+                            <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
+                                <td class="px-4 py-3 font-mono text-cyan-400">${request.ip}</td>
+                                <td class="px-4 py-3 text-slate-300 truncate max-w-[150px]">${request.country}</td>
+                                <td class="px-4 py-3 text-slate-400 hidden md:table-cell text-xs truncate max-w-[200px]" title="${request.summary}">${request.summary}</td>
+                                <td class="px-4 py-3 text-center">${threatBadge}</td>
                             </tr>`;
                     });
                 })
-                .catch(error => console.error("Fehler beim Abrufen der Netzwerk-Anfragen:", error));
+                .catch(error => console.error("Error fetching network requests:", error));
         }
 
         document.getElementById('network-prev').addEventListener('click', () => {
-            if (currentNetworkPage > 1) {
-                currentNetworkPage--;
-                fetchNetworkRequests(currentNetworkPage);
-            }
+            if (currentNetworkPage > 1) { currentNetworkPage--; fetchNetworkRequests(currentNetworkPage); }
         });
-
         document.getElementById('network-next').addEventListener('click', () => {
-            currentNetworkPage++;
-            fetchNetworkRequests(currentNetworkPage);
+            currentNetworkPage++; fetchNetworkRequests(currentNetworkPage);
         });
 
-        // Logs anzeigen
         let currentLogsPage = 1;
-
         function fetchLogs(page = 1) {
             fetch(`/logs?page=${page}`)
                 .then(response => response.json())
@@ -328,97 +381,48 @@
                     const logList = document.getElementById('log-list');
                     logList.innerHTML = '';
                     data.forEach(log => {
-                        logList.innerHTML += `<tr><td>${log.timestamp}</td><td>${log.log}</td></tr>`;
+                        const timeStr = log.timestamp.split(' ')[1] || log.timestamp;
+                        logList.innerHTML += `
+                            <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
+                                <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${timeStr}</td>
+                                <td class="px-4 py-2 text-cyan-100/70">${log.log}</td>
+                            </tr>`;
                     });
                 })
-                .catch(error => console.error("Fehler beim Abrufen der Logs:", error));
+                .catch(error => console.error("Error fetching logs:", error));
         }
 
         document.getElementById('logs-prev').addEventListener('click', () => {
-            if (currentLogsPage > 1) {
-                currentLogsPage--;
-                fetchLogs(currentLogsPage);
-            }
+            if (currentLogsPage > 1) { currentLogsPage--; fetchLogs(currentLogsPage); }
         });
-
         document.getElementById('logs-next').addEventListener('click', () => {
-            currentLogsPage++;
-            fetchLogs(currentLogsPage);
+            currentLogsPage++; fetchLogs(currentLogsPage);
         });
 
-        // KI-Benachrichtigung über Logs
-        function fetchLogsAndUpdate() {
-            fetchLogs(currentLogsPage);
-        }
-
-        
-        function fetchAndDisplayRecentLogs() {
-            fetch('/get_recent_logs')
-                .then(response => response.json())
-                .then(logs => {
-                    const chatBox = document.getElementById('chat-box');
-                    logs.forEach(log => {
-                        const message = `<div><strong>${log.source}:</strong> ${log.message} (Severity: ${log.severity})</div>`;
-                        chatBox.innerHTML += message;
-                    });
-                    chatBox.scrollTop = chatBox.scrollHeight; // Scroll to the bottom of the chat box
-                })
-                .catch(error => console.error('Error fetching recent logs:', error));
-        }
-
-
-
-
-        // Systemmetriken anzeigen
         function fetchSystemInfo() {
             fetch('/system-info')
                 .then(response => response.json())
                 .then(data => {
                     const systemInfoList = document.getElementById('system-info');
-                    systemInfoList.innerHTML = '';
                     if (data.error) {
-                        systemInfoList.innerHTML = `<li class="list-group-item text-danger">${data.error}</li>`;
+                        systemInfoList.innerHTML = `<li class="text-red-400 font-bold">${data.error}</li>`;
                     } else {
                         systemInfoList.innerHTML = `
-                            <li class="list-group-item">CPU Frequenz: ${data.cpu_frequency} MHz</li>
-                            <li class="list-group-item">CPU Kerne: ${data.cpu_cores}</li>
-                            <li class="list-group-item">CPU Nutzung: ${data.cpu_usage}%</li>
-                            <li class="list-group-item">GPU Nutzung: ${data.gpu_usage}</li>
-                            <li class="list-group-item">GPU Speicher genutzt: ${data.gpu_memory_used}</li>
-                            <li class="list-group-item">GPU Gesamtspeicher: ${data.gpu_memory_total}</li>
-                            <li class="list-group-item">Power Nutzung: ${data.power_usage}%</li>
-                            <li class="list-group-item">Gesamtspeicher: ${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</li>
-                            <li class="list-group-item">Gesamtdisk: ${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</li>
+                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Frequency</span> <span class="text-cyan-400 font-mono">${data.cpu_frequency} MHz</span></li>
+                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Logical Cores</span> <span class="text-cyan-400 font-mono">${data.cpu_cores}</span></li>
+                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Usage</span> <span class="text-cyan-400 font-mono">${data.cpu_usage}%</span></li>
+                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Total RAM</span> <span class="text-purple-400 font-mono">${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</span></li>
+                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Disk Space</span> <span class="text-emerald-400 font-mono">${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</span></li>
+                            <li class="flex justify-between pt-1"><span>GPU Status</span> <span class="text-slate-400 font-mono text-xs">VRAM: ${data.gpu_memory_used}</span></li>
                         `;
                     }
-                })
-                .catch(error => {
-                    console.error("Fehler beim Abrufen der Systeminformationen:", error);
-                    document.getElementById('system-info').innerHTML = `<li class="list-group-item text-danger">Fehler beim Abrufen der Systeminformationen</li>`;
                 });
         }
 
-        function fetchServerMetrics() {
-            fetch('/server-status')
-                .then(response => response.json())
-                .then(data => {
-                    updateCharts(data.cpu_usage, data.memory_usage, data.disk_usage);
-                });
-        }
-
-        // Initiale Daten laden
+        // Initial Data Fetch
         fetchSystemInfo();
         fetchNetworkRequests(currentNetworkPage);
         fetchLogs(currentLogsPage);
-        
-
-        // Periodische Updates für Metriken, Netzwerk und Logs
-        setInterval(fetchServerMetrics, 5000); // Alle 5 Sekunden
-        setInterval(() => fetchNetworkRequests(currentNetworkPage), 5000); // Alle 5 Sekunden
-        setInterval(() => fetchLogs(currentLogsPage), 5000); // Alle 5 Sekunden
-        setInterval(fetchSystemInfo, 5000); // Alle 5 Sekunden
-        // Call this function to update the chat periodically or in response to a user command
-        setInterval(fetchAndDisplayRecentLogs, 30000); // Update every 30 seconds
     </script>
 </body>
 </html>
