@@ -31,26 +31,79 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/Keyvanhardani/AI-Driven-SIEM-Realtime-Operator-with-Groq-Integration.git
-   cd AI-Driven-SIEM-Operator
+   git clone https://github.com/your-username/SecOps-AI.git
+   cd SecOps-AI
    ```
 
-2. **Install dependencies**:
+2. **Set up a virtual environment (Recommended)**:
+   
+   It is best practice to run the application in a virtual environment to avoid dependency conflicts.
+
+   ```bash
+   # Create the virtual environment
+   python -m venv venv
+
+   # Activate it (Windows PowerShell)
+   .\venv\Scripts\Activate.ps1
+   ```
+
+3. **Install dependencies**:
+   
+   Install all required libraries, including TensorFlow, Scapy, and SocketIO.
+
    ```bash
    pip install -r requirements.txt
-   Install Ollama and Llama3.2
    ```
 
-3. **Configure Groq API**:
-   - Add your Groq API key to `config.py`:
-   ```python
-   GROQ_API_KEY = "your_groq_api_key"
+4. **Configure environment variables**:
+   
+   Create a file named `.env` in the root directory. This file will securely store your credentials.
+
+   ```env
+   GROQ_API_KEY=your_groq_api_key_here
+   HF_TOKEN=your_huggingface_token_here
    ```
 
-4. **Run the application**:
+   - **GROQ_API_KEY**: Get your API key from `console.groq.com`
+   - **HF_TOKEN**: Get your read-access token from `huggingface.co/settings/tokens` to automatically download the `SecIDS-CNN` model.
+
+5. **Install & run local AI dependencies**:
+   
+   The system leverages local LLM inference for edge alert generation.
+
+   **Install Ollama**: Download and install Ollama from `ollama.com`
+
+   **Pull Llama 3.2 model**:
    ```bash
-   python app.py
+   ollama pull llama3.2
    ```
+
+   Ensure Ollama is running in the background before starting the application.
+
+6. **Run the application**:
+   
+   Start the SecOps-AI pipeline.
+
+   > **Note:** Packet sniffing requires **Administrator privileges**.
+
+   ```bash
+   # Run in Administrator PowerShell
+   python app_groq.py
+   ```
+
+7. **Access the dashboard**:
+   
+   Once the server is running, open your browser and navigate to:
+
+   ```text
+   http://127.0.0.1:5000
+   ```
+
+## Pro Tips for Deployment
+
+- **Npcap (Windows)**: Ensure Npcap is installed for the Scapy packet sniffer to capture live network traffic.
+
+- **GPU Support**: TensorFlow defaults to CPU-only on Windows. For production-grade inference, consider running the project inside **WSL2 (Windows Subsystem for Linux)** to leverage CUDA/GPU acceleration.
 
 ## Usage
 
