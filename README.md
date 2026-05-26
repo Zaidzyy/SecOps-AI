@@ -1,5 +1,5 @@
 
-![SIEM GROQ](screenshot.png)
+![SIEM GROQ](ss.png)
 
 # SecOps-AI: Real-Time AI-Driven SIEM Threat Operator
 
