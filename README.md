@@ -107,7 +107,6 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 
 ## Usage
 
-- **Access the dashboard**: Navigate to `http://localhost:5000` to view system metrics, logs, and network data.
 - **Real-time monitoring**: Receive live metrics, network activity, and AI-generated alerts in real-time.
 - **Customizable API**: Integrate with Groq to leverage high-performance AI analysis.
 
