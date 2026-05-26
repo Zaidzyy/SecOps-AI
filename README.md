@@ -31,7 +31,7 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/SecOps-AI.git
+   git clone https://github.com/Zaidzyy/SecOps-AI.git
    cd SecOps-AI
    ```
 
