@@ -1,6 +1,4 @@
 from flask import Flask, jsonify, request, render_template
-import tensorflow as tf
-import numpy as np
 import psutil
 import datetime
 import sqlite3
@@ -15,12 +13,15 @@ import os
 from collections import deque
 # from transformers import TFAutoModel, AutoConfig
 import GPUtil
-from huggingface_hub import hf_hub_download
 from flask_socketio import SocketIO, emit
 import time
 import eventlet
 from dotenv import load_dotenv
 import os
+
+import config
+import flow_tracker as ft
+import cnn_engine
 
 load_dotenv()
 
@@ -36,29 +37,21 @@ socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
 
 
 
-MODEL_PATH = 'SecIDS-CNN.h5'
-MODEL_ID = "Keyven/SecIDS-CNN"
-FILENAME = "SecIDS-CNN.h5"
+# --- Threat detection engine ---
+# The borrowed SecIDS-CNN.h5 is intentionally NOT loaded for inference: its
+# 10-feature training contract (feature names, order, scaler) was never
+# published, so its verdicts on OUR features would be meaningless. We ship our
+# own flow classifier instead -- trained on the exact features flow_tracker
+# emits (see cnn_engine.py, train_flow_model.py, and the README).
+try:
+    cnn_engine.load_model()
+    print(f"[OK] SecOps-AI: Flow threat-detection engine loaded (primary: {config.PRIMARY_MODEL_TYPE}).")
+except Exception as e:
+    print(f"[WARN] SecOps-AI: detection engine not loaded ({e}). "
+          f"Run train_flow_model.py to build models/. Sniffing continues without verdicts.")
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-
-
-if not os.path.exists(MODEL_PATH):
-    print("🚀 SecOps-AI: Downloading deep learning model from Hugging Face...")
-    try:
-        
-        model_file = hf_hub_download(repo_id=MODEL_ID, filename=FILENAME, token=HF_TOKEN)
-        
-        model = tf.keras.models.load_model(model_file)
-        
-        model.save(MODEL_PATH)
-        print("✅ Model successfully downloaded and saved locally.")
-    except Exception as e:
-        print(f"❌ Error downloading deep learning model execution primitive: {e}")
-else:
-    print("🚀 SecOps-AI: Loading classification model from local disk storage...")
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("✅ Model successfully loaded from local persistence storage tier.")
+# One flow tracker shared by live sniffing and (future) pcap replay.
+flow_tracker = ft.FlowTracker()
 
 
 ollama_client = OllamaClient(base_url="http://localhost:11434")
@@ -83,9 +76,19 @@ def initialize_database():
                 blacklisted TEXT,
                 attacks INTEGER,
                 reports INTEGER,
+                cnn_verdict TEXT,
+                cnn_confidence REAL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # Migration for existing DBs: add the CNN verdict columns if missing.
+        # SQLite has no "ADD COLUMN IF NOT EXISTS", so check PRAGMA first.
+        existing_cols = {row["name"] for row in
+                         conn.execute("PRAGMA table_info(network_requests)").fetchall()}
+        if "cnn_verdict" not in existing_cols:
+            conn.execute("ALTER TABLE network_requests ADD COLUMN cnn_verdict TEXT")
+        if "cnn_confidence" not in existing_cols:
+            conn.execute("ALTER TABLE network_requests ADD COLUMN cnn_confidence REAL")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_network_requests_timestamp ON network_requests (timestamp);
         """)
@@ -186,11 +189,6 @@ def system_info():
         print("❌ Error fetching internal metrics payloads:", e)
         return jsonify({"error": "Failed to pull system diagnostic telemetry metrics"}), 500
 
-# CNN Modell 
-def analyze_packet_with_cnn(packet_data):
-    prediction = model.predict(np.array([packet_data]))[0]
-    return "suspicious" if prediction[1] > 0.5 else "normal"
-
 def send_system_metrics():
     counter = 0  # Initialize a loop counter
     while True:
@@ -272,38 +270,143 @@ def handle_new_network_request(network_data):
 
 
 
-def packet_callback(packet):
-    if packet.haslayer(IP) and (packet.haslayer(TCP) or packet.haslayer(UDP)):
-        ip = packet[IP].src
-        summary = packet.summary()
+def _record_packet_telemetry(packet):
+    """Per-packet geo + blocklist enrichment and telemetry insert (unchanged
+    behaviour). Note: this does synchronous HTTP on the sniff thread -- that is a
+    known bottleneck addressed in Phase 2, out of scope for this step."""
+    ip = packet[IP].src
+    summary = packet.summary()
 
-        
-        excluded_ips = {"144.76.114.3", "159.89.102.253"}
-        if ip in excluded_ips or ipaddress.ip_address(ip).is_private or ":" in ip:
-            country = "Internal Loopback/Excluded IPv6 Target"
-            is_blacklisted = False
-            attacks = 0
-            reports = 0
+    excluded_ips = {"144.76.114.3", "159.89.102.253"}
+    if ip in excluded_ips or ipaddress.ip_address(ip).is_private or ":" in ip:
+        country = "Internal Loopback/Excluded IPv6 Target"
+        is_blacklisted = False
+        attacks = 0
+        reports = 0
+    else:
+        country = get_ip_country(ip)
+        blacklist_status = check_ip_blacklist_cached(ip)
+        is_blacklisted = blacklist_status["blacklisted"]
+        attacks = blacklist_status.get("attacks", 0)
+        reports = blacklist_status.get("reports", 0)
+
+    with get_db_connection() as conn:
+        conn.execute("""
+            INSERT INTO network_requests (ip, type, country, summary, blacklisted, attacks, reports)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (ip, "IPv4", country, summary, "Yes" if is_blacklisted else "No", attacks, reports))
+        conn.commit()
+
+    # Audit Log Tracking and AI Escalation triggers
+    log_message = f"Network Packet Ingested from source address: {ip} ({country}) - Target Infrastructure Blacklisted State: {is_blacklisted}"
+    save_log(log_message)
+    if is_blacklisted:
+        notify_ai(log_message)
+
+
+def _handle_completed_flow(flow):
+    """Classify a completed flow with OUR model, persist the verdict, and emit it
+    to the dashboard. All model work is wrapped so a failure logs and continues
+    rather than killing the sniffer thread."""
+    try:
+        result = cnn_engine.classify_flow(flow)
+    except Exception as e:
+        print(f"[ERROR] CNN flow classification failed (continuing): {e}")
+        return
+
+    verdict = result["verdict"]
+    confidence = float(result["confidence"])
+    src = flow.src_ip
+    try:
+        if ":" in src or ipaddress.ip_address(src).is_private:
+            country = "Internal/Private Range (Non-Routable)"
         else:
-            country = get_ip_country(ip)
-            blacklist_status = check_ip_blacklist_cached(ip)
-            is_blacklisted = blacklist_status["blacklisted"]
-            attacks = blacklist_status.get("attacks", 0)
-            reports = blacklist_status.get("reports", 0)
-        
-        
+            country = get_ip_country(src)
+    except ValueError:
+        country = "Unknown"
+
+    total_pkts = flow.fwd_packets + flow.bwd_packets
+    summary = (f"Flow {flow.src_ip}:{flow.src_port} -> {flow.dst_ip}:{flow.dst_port} "
+               f"proto={flow.proto} pkts={total_pkts} dur={flow.duration_s:.2f}s")
+
+    try:
         with get_db_connection() as conn:
             conn.execute("""
-                INSERT INTO network_requests (ip, type, country, summary, blacklisted, attacks, reports)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (ip, "IPv4", country, summary, "Yes" if is_blacklisted else "No", attacks, reports))
+                INSERT INTO network_requests
+                    (ip, type, country, summary, blacklisted, attacks, reports,
+                     cnn_verdict, cnn_confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (src, "FLOW", country, summary, "No", 0, 0, verdict, confidence))
             conn.commit()
+    except Exception as e:
+        print(f"[ERROR] Failed to persist flow verdict (continuing): {e}")
 
-        # Audit Log Tracking and AI Escalation triggers
-        log_message = f"Network Packet Ingested from source address: {ip} ({country}) - Target Infrastructure Blacklisted State: {is_blacklisted}"
-        save_log(log_message)
-        if is_blacklisted:
-            notify_ai(log_message)
+    save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}) - {summary}")
+    socketio.emit('cnn_verdict', {
+        "ip": src, "verdict": verdict, "confidence": confidence,
+        "summary": summary, "country": country,
+    })
+
+
+def _ingest_packet_flows(packet):
+    """Feed one packet into the flow tracker and classify any completed flows.
+    Shared by live sniffing and pcap replay so both run the identical detection
+    path. Guarded so a parsing/tracking error never takes down the caller."""
+    try:
+        meta = ft.meta_from_scapy(packet)
+    except Exception as e:
+        print(f"[ERROR] Packet->flow conversion failed (continuing): {e}")
+        return
+    if meta is None:
+        return
+    try:
+        for flow in flow_tracker.update(meta):
+            _handle_completed_flow(flow)
+    except Exception as e:
+        print(f"[ERROR] Flow tracking failed (continuing): {e}")
+
+
+def packet_callback(packet):
+    """Unified capture entry point for BOTH live sniffing and pcap replay. Does
+    per-packet telemetry and feeds the packet into the flow tracker; completed
+    flows are classified and their verdicts persisted + emitted."""
+    if not (packet.haslayer(IP) and (packet.haslayer(TCP) or packet.haslayer(UDP))):
+        return
+    _record_packet_telemetry(packet)
+    _ingest_packet_flows(packet)
+
+
+def replay_pcap(path, with_telemetry=False):
+    """Replay a .pcap/.pcapng through the SAME flow-detection path as live
+    sniffing. Reuses _ingest_packet_flows + _handle_completed_flow, so verdicts
+    are persisted and emitted exactly as they are for live traffic. Per-packet
+    geo/blocklist telemetry is off by default (it does blocking HTTP per packet;
+    it is the live path's job, not replay's). Returns the packet count."""
+    from scapy.utils import PcapReader
+    count = 0
+    with PcapReader(path) as reader:
+        for pkt in reader:
+            count += 1
+            if with_telemetry and pkt.haslayer(IP) and \
+               (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
+                _record_packet_telemetry(pkt)
+            _ingest_packet_flows(pkt)
+    # End of capture: flush any still-open flows through the same handler.
+    for flow in flow_tracker.flush():
+        _handle_completed_flow(flow)
+    return count
+
+
+def flow_expiry_worker():
+    """Emit idle/long-lived flows even when traffic goes quiet (the packet-driven
+    path only expires flows when new packets arrive). Runs as a daemon thread."""
+    while True:
+        time.sleep(5)
+        try:
+            for flow in flow_tracker.expire():
+                _handle_completed_flow(flow)
+        except Exception as e:
+            print(f"[ERROR] Flow expiry worker error (continuing): {e}")
 
 
 
@@ -355,7 +458,13 @@ def save_log(log):
 # AI Alert notification processing layer (Forces short parsing directly down to the local edge agent)
 def notify_ai(message):
     short_prompt = f"Anomalous Incident Event Captured: {message}\nProvide a highly concise threat description summary in English using a maximum of 1-2 sentences."
-    response = ollama_client.generate(prompt=short_prompt)
+    # OllamaClient.chat() posts to /v1/chat/completions (Ollama's OpenAI-compatible
+    # endpoint), so the reply is in choices[0].message.content.
+    result = ollama_client.chat(
+        model='llama3.2',
+        messages=[{'role': 'user', 'content': short_prompt}],
+    )
+    response = result['choices'][0]['message']['content']
     save_log(f"SecOps-AI Edge Alert Notification: {response}")
 
 
@@ -488,9 +597,10 @@ def get_network_requests():
         offset = (page - 1) * page_size
         with get_db_connection() as conn:
             requests = conn.execute("""
-                SELECT ip, type, country, summary, blacklisted, attacks, reports, timestamp 
-                FROM network_requests 
-                ORDER BY timestamp DESC 
+                SELECT ip, type, country, summary, blacklisted, attacks, reports,
+                       cnn_verdict, cnn_confidence, timestamp
+                FROM network_requests
+                ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
             """, (page_size, offset)).fetchall()
         data = [dict(request) for request in requests]
@@ -505,6 +615,19 @@ def start_sniffing():
     sniff(prn=packet_callback, store=0)
 
 if __name__ == '__main__':
+    import sys
+    # Replay mode: run a pcap through the SAME flow-detection path as live
+    # sniffing, without starting the server/sniffer. Useful for demos and for
+    # verifying the pipeline without live capture:
+    #     python app_groq.py --replay samples/heartbleed-excerpt.pcap
+    if len(sys.argv) >= 3 and sys.argv[1] == '--replay':
+        pcap_path = sys.argv[2]
+        print(f"Replaying {pcap_path} through the flow-detection pipeline ...")
+        replayed = replay_pcap(pcap_path)
+        print(f"Done. Replayed {replayed} packets; flow verdicts written to "
+              f"system_metrics.db and emitted over WebSocket.")
+        sys.exit(0)
+
     print("="*75)
     print("🚀 SECOPS-AI: AI-DRIVEN REAL-TIME SIEM THREAT OPERATOR PIPELINE INITIALIZED")
     print("🛡️ Real-Time Packet Sniffing Engine & Groq LLM Triage Accelerator Active")
@@ -512,7 +635,10 @@ if __name__ == '__main__':
 
     # Fire up the packet sniffer thread
     threading.Thread(target=start_sniffing, daemon=True).start()
-    
+
+    # Emit flow verdicts even when traffic goes quiet
+    threading.Thread(target=flow_expiry_worker, daemon=True).start()
+
     # Force Flask-SocketIO to deploy utilizing the eventlet production layer wrapper
     socketio.run(app, debug=True, host='127.0.0.1', port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
     

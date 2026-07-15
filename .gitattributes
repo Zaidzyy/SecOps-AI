@@ -1,0 +1,17 @@
+# Normalize line endings. Without this, editors on Windows silently rewrite files
+# to CRLF, producing whole-file "phantom" diffs that bury the real change (this
+# happened: a 6-line .gitignore edit showed up as 344 changed lines).
+# text=auto lets git detect text files and store them with LF in the repo;
+# eol=lf checks them out as LF everywhere.
+* text=auto eol=lf
+
+# Belt and braces: never run EOL conversion on the binary artifacts we ship.
+# text=auto already auto-detects these, but marking them explicitly means a
+# mis-detection can never corrupt a model, capture, or image.
+*.pcap   binary
+*.pcapng binary
+*.joblib binary
+*.keras  binary
+*.h5     binary
+*.png    binary
+*.parquet binary

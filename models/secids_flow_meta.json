@@ -1,0 +1,47 @@
+{
+  "primary_model": "gbt",
+  "feature_order": [
+    "duration_s",
+    "protocol",
+    "fwd_packets",
+    "bwd_packets",
+    "fwd_bytes",
+    "bwd_bytes",
+    "syn_count",
+    "rst_count",
+    "fin_count",
+    "ack_count"
+  ],
+  "protocol_encoding": {
+    "tcp": 6,
+    "udp": 17,
+    "other": 0
+  },
+  "duration_unit": "seconds (CICFlowMeter microseconds / 1e6, clipped >=0)",
+  "label_map": {
+    "0": "normal",
+    "1": "suspicious"
+  },
+  "threshold": 0.5,
+  "input_shape": [
+    10,
+    1
+  ],
+  "dataset": "CIC-IDS-2017 (rdpahalavan/CIC-IDS2017, Network-Flows parquet)",
+  "shipped_models": {
+    "gbt": "secids_flow_gbt.joblib",
+    "cnn": "secids_flow_cnn.keras"
+  },
+  "shipped_from_split": "dedup_stratified",
+  "dedup_stats": {
+    "balanced_rows": 1669665,
+    "unique_rows": 1073362,
+    "duplicate_rate": 0.3571
+  },
+  "counts": {
+    "total_rows": 2827677,
+    "attack_rows": 556555,
+    "benign_rows_used": 1113110
+  },
+  "trained_at": "2026-07-15T08:39:30.051459+00:00"
+}

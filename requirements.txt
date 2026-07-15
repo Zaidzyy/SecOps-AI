@@ -1,12 +1,39 @@
-# SecOps-AI Production Dependency Manifest
-Flask==3.0.2
-Flask-SocketIO==5.3.6
-eventlet==0.35.1
-tensorflow==2.15.0
-transformers==4.38.1
-huggingface_hub==0.21.4
-numpy==1.26.4
-psutil==5.9.8
+# SecOps-AI - RUNTIME dependencies (app_groq.py: live sniffing + pcap replay).
+#
+# Everything needed to clone the repo and run inference with the shipped model in
+# models/. TensorFlow is deliberately NOT here: the shipped detector is the
+# sklearn GBT, and cnn_engine.py imports TensorFlow lazily, only inside the
+# Conv1D-baseline branch. To retrain, or to run the Conv1D benchmark or the
+# tests, additionally install requirements-train.txt.
+#
+# Versions are pinned to the environment the shipped model was trained and
+# serialized under. numpy / scikit-learn / joblib in particular MUST match: the
+# GBT and the scaler are pickles, and loading them under an older numpy fails
+# with "PCG64 is not a known BitGenerator module".
+
+# Web app / dashboard
+Flask==3.1.3
+Flask-SocketIO==5.6.1
+eventlet==0.41.0
+
+# Packet capture
+scapy==2.7.0
+
+# Host metrics, enrichment, config
+psutil==7.2.2
 GPUtil==1.4.0
-requests==2.31.0
-scapy==2.5.0
+# GPUtil 1.4.0 does `from distutils import spawn`, but distutils was removed from
+# the stdlib in Python 3.12. setuptools re-provides it, so it is a REAL runtime
+# dependency here, not a build tool. (It was previously pulled in by accident, as
+# a transitive dep of TensorFlow; dropping TF from the runtime manifest exposed
+# this.) Without it, `import GPUtil` raises ModuleNotFoundError on py>=3.12.
+setuptools>=68
+requests==2.34.2
+python-dotenv==1.2.2
+
+# Flow threat-detection engine: load + run the shipped GBT and its scaler.
+# Pinned exactly for pickle compatibility with models/secids_flow_gbt.joblib.
+numpy==2.4.6
+scipy==1.18.0
+scikit-learn==1.9.0
+joblib==1.5.3

@@ -1,0 +1,156 @@
+{
+  "primary_model": "gbt",
+  "baseline_model": "compact Conv1D",
+  "headline_split": "dedup_stratified",
+  "splits": {
+    "dedup_stratified": {
+      "note": "Dedup (exact-duplicate feature vectors removed) + stratified. Identical flows cannot span train/test. Treat as REAL.",
+      "test_size": 214673,
+      "test_positives": 65106,
+      "gbt": {
+        "accuracy": 0.9942,
+        "precision": 0.9954,
+        "recall": 0.9853,
+        "f1": 0.9903,
+        "roc_auc": 0.9995
+      },
+      "cnn": {
+        "accuracy": 0.9541,
+        "precision": 0.9444,
+        "recall": 0.9017,
+        "f1": 0.9226,
+        "roc_auc": 0.991
+      },
+      "gbt_confusion": {
+        "tn": 149272,
+        "fp": 295,
+        "fn": 956,
+        "tp": 64150
+      },
+      "cnn_confusion": {
+        "tn": 146112,
+        "fp": 3455,
+        "fn": 6397,
+        "tp": 58709
+      }
+    },
+    "random_stratified": {
+      "note": "Random stratified split. Optimistic upper bound (duplicate flow bursts leak across train/test).",
+      "test_size": 333933,
+      "test_positives": 111311,
+      "gbt": {
+        "accuracy": 0.9834,
+        "precision": 0.9725,
+        "recall": 0.9779,
+        "f1": 0.9752,
+        "roc_auc": 0.9986
+      },
+      "cnn": {
+        "accuracy": 0.9021,
+        "precision": 0.8837,
+        "recall": 0.8132,
+        "f1": 0.847,
+        "roc_auc": 0.9643
+      },
+      "gbt_confusion": {
+        "tn": 219544,
+        "fp": 3078,
+        "fn": 2458,
+        "tp": 108853
+      },
+      "cnn_confusion": {
+        "tn": 210707,
+        "fp": 11915,
+        "fn": 20790,
+        "tp": 90521
+      }
+    },
+    "group_by_source_ip": {
+      "note": "Group split by source IP. DEGENERATE: one IP emits 99.6% of attacks, so a held-out IP removes whole campaigns. Documented, not fair.",
+      "test_size": 738726,
+      "test_positives": 554739,
+      "gbt": {
+        "accuracy": 0.2492,
+        "precision": 0.6046,
+        "recall": 0.0004,
+        "f1": 0.0008,
+        "roc_auc": 0.7017
+      },
+      "cnn": {
+        "accuracy": 0.249,
+        "precision": 0.1398,
+        "recall": 0.0,
+        "f1": 0.0,
+        "roc_auc": 0.6955
+      },
+      "gbt_confusion": {
+        "tn": 183849,
+        "fp": 138,
+        "fn": 554528,
+        "tp": 211
+      },
+      "cnn_confusion": {
+        "tn": 183907,
+        "fp": 80,
+        "fn": 554726,
+        "tp": 13
+      }
+    }
+  },
+  "leakage_check": {
+    "per_feature": {
+      "duration_s": {
+        "univariate_auc": 0.5422,
+        "stump_auc": 0.6104
+      },
+      "protocol": {
+        "univariate_auc": 0.7198,
+        "stump_auc": 0.7202
+      },
+      "fwd_packets": {
+        "univariate_auc": 0.5471,
+        "stump_auc": 0.6261
+      },
+      "bwd_packets": {
+        "univariate_auc": 0.5103,
+        "stump_auc": 0.6089
+      },
+      "fwd_bytes": {
+        "univariate_auc": 0.6369,
+        "stump_auc": 0.6853
+      },
+      "bwd_bytes": {
+        "univariate_auc": 0.5441,
+        "stump_auc": 0.6977
+      },
+      "syn_count": {
+        "univariate_auc": 0.5213,
+        "stump_auc": 0.5213
+      },
+      "rst_count": {
+        "univariate_auc": 0.5001,
+        "stump_auc": 0.5001
+      },
+      "fin_count": {
+        "univariate_auc": 0.544,
+        "stump_auc": 0.544
+      },
+      "ack_count": {
+        "univariate_auc": 0.5732,
+        "stump_auc": 0.5732
+      }
+    },
+    "flagged": [],
+    "note": "AUC>=0.98 for a single feature suggests possible leakage."
+  },
+  "dedup_stats": {
+    "balanced_rows": 1669665,
+    "unique_rows": 1073362,
+    "duplicate_rate": 0.3571
+  },
+  "counts": {
+    "total_rows": 2827677,
+    "attack_rows": 556555,
+    "benign_rows_used": 1113110
+  }
+}

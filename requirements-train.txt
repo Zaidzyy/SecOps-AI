@@ -1,0 +1,23 @@
+# SecOps-AI - TRAINING / BENCHMARK / TEST dependencies.
+#
+# NOT needed to run the app. Install these on top of requirements.txt only to:
+#   - retrain the flow classifier:      python train_flow_model.py
+#   - run the Conv1D baseline benchmark (cnn_engine.load_cnn_baseline)
+#   - run the test suite:               pytest
+#
+#   pip install -r requirements.txt -r requirements-train.txt
+#
+# TensorFlow lives here, not in the runtime manifest: the shipped detector is the
+# GBT, and cnn_engine.py only imports TensorFlow inside the Conv1D branch.
+
+# Conv1D baseline (trained + benchmarked, reported in models/metrics.json)
+tensorflow==2.21.0
+
+# CIC-IDS-2017 parquet ingest + metrics plots
+pandas==3.0.3
+pyarrow==25.0.0
+matplotlib==3.11.0
+
+# Tests. test_feature_alignment.py also needs pandas/pyarrow above and the
+# dataset: set CICIDS_PARQUET=<path to CICIDS_Flow.parquet> or it skips.
+pytest==9.1.1
