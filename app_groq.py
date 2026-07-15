@@ -15,13 +15,14 @@ from collections import deque
 import GPUtil
 from flask_socketio import SocketIO, emit
 import time
-import eventlet
 from dotenv import load_dotenv
 import os
 
 import config
 import flow_tracker as ft
 import cnn_engine
+import enrichment
+import pipeline
 
 load_dotenv()
 
@@ -50,8 +51,87 @@ except Exception as e:
     print(f"[WARN] SecOps-AI: detection engine not loaded ({e}). "
           f"Run train_flow_model.py to build models/. Sniffing continues without verdicts.")
 
-# One flow tracker shared by live sniffing and (future) pcap replay.
+# One flow tracker shared by live sniffing and pcap replay.
+#
+# It is shared by N enrichment workers, and FlowTracker itself does no locking
+# (its dict is mutated by update/expire/flush), so every mutation goes through
+# _flow_lock. The lock is held ONLY around the tracker call -- classification and
+# enrichment happen outside it, so workers still run in parallel where it counts.
 flow_tracker = ft.FlowTracker()
+_flow_lock = threading.Lock()
+
+# --- Ingestion pipeline (Phase 2) -------------------------------------------
+# sniff -> capture_queue -> enrichment workers -> write_queue -> ONE DB writer.
+# The sniff thread does capture ONLY; everything expensive (geo/reputation HTTP,
+# flow tracking, classification, DB writes) happens downstream.
+capture_queue = pipeline.DropCounterQueue(maxsize=config.CAPTURE_QUEUE_MAX)
+db_writer = pipeline.BatchedDBWriter('system_metrics.db')
+
+_SQL_INSERT_TELEMETRY = """
+    INSERT INTO network_requests (ip, type, country, summary, blacklisted, attacks, reports)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+_SQL_INSERT_FLOW = """
+    INSERT INTO network_requests
+        (ip, type, country, summary, blacklisted, attacks, reports,
+         cnn_verdict, cnn_confidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+_SQL_INSERT_LOG = "INSERT INTO logs (timestamp, log) VALUES (?, ?)"
+_SQL_INSERT_METRIC = """
+    INSERT INTO metrics (timestamp, cpu, memory, disk, network) VALUES (?, ?, ?, ?, ?)
+"""
+
+_pipeline_started = False
+_pipeline_lock = threading.Lock()
+_workers: list = []
+
+
+def _enrichment_worker():
+    """Stage 2: drain capture_queue, enrich + track + classify. Never writes to
+    SQLite directly -- rows go to the writer queue."""
+    while True:
+        try:
+            packet = capture_queue.get(timeout=0.25)
+        except Exception:
+            continue
+        try:
+            if packet is None:                       # shutdown sentinel
+                capture_queue.task_done()
+                return
+            _process_captured_packet(packet)
+        except Exception as e:
+            print(f"[ERROR] Enrichment worker (continuing): {e}")
+        finally:
+            if packet is not None:
+                capture_queue.task_done()
+
+
+def start_pipeline():
+    """Start the DB writer + enrichment workers exactly once. Called by both the
+    server and pcap replay, so both drive the identical pipeline."""
+    global _pipeline_started
+    with _pipeline_lock:
+        if _pipeline_started:
+            return
+        db_writer.start()
+        for i in range(config.ENRICHMENT_WORKERS):
+            t = threading.Thread(target=_enrichment_worker,
+                                 name=f"enrich-{i}", daemon=True)
+            t.start()
+            _workers.append(t)
+        _pipeline_started = True
+
+
+def pipeline_stats() -> dict:
+    """Health of the pipeline. `capture.dropped` is the number the operator cares
+    about: packets the sniffer had to discard because enrichment fell behind."""
+    return {
+        "capture": capture_queue.stats(),
+        "db_writer": db_writer.stats(),
+        "enrichment_cache": enrichment.stats(),
+        "open_flows": len(flow_tracker),
+    }
 
 
 ollama_client = OllamaClient(base_url="http://localhost:11434")
@@ -65,7 +145,9 @@ def get_db_connection():
 
 def initialize_database():
     with get_db_connection() as conn:
-        
+        # WAL lets the dashboard's readers run concurrently with the single DB
+        # writer instead of blocking on it. It is a persistent DB-level setting.
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS network_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,18 +207,10 @@ def initialize_database():
 initialize_database()
 
 
-def get_ip_country(ip):
-    try:
-        if ":" in ip or ipaddress.ip_address(ip).is_private:
-            return "Internal/Private Range (Non-Routable)"
-        
-        response = requests.get(f"https://geolocation-db.com/json/{ip}&position=true").json()
-        country = response.get("country_name", "Unbekannt")
-        city = response.get("city", "Unbekannt")
-        state = response.get("state", "Unbekannt")
-        return f"{country}, {city}, {state}"
-    except (requests.RequestException, ValueError):
-        return "Resolution Timeout/Error"
+# Geolocation moved to enrichment.get_ip_country(), which is TTL-cached. The old
+# version here had NO cache, so every packet from a public IP paid a full HTTP
+# round trip on the sniff thread -- the main reason capture fell behind.
+get_ip_country = enrichment.get_ip_country
 
 
 MAX_NETWORK_REQUESTS = 1000
@@ -271,34 +345,27 @@ def handle_new_network_request(network_data):
 
 
 def _record_packet_telemetry(packet):
-    """Per-packet geo + blocklist enrichment and telemetry insert (unchanged
-    behaviour). Note: this does synchronous HTTP on the sniff thread -- that is a
-    known bottleneck addressed in Phase 2, out of scope for this step."""
+    """Stage 2 (enrichment worker): geo + reputation for one packet, queued for
+    the DB writer.
+
+    Runs on an enrichment worker, never on the sniff thread. Both lookups are
+    TTL-cached in enrichment.py, so a given IP costs one HTTP round trip per cache
+    window instead of one per packet.
+    """
     ip = packet[IP].src
     summary = packet.summary()
 
-    excluded_ips = {"144.76.114.3", "159.89.102.253"}
-    if ip in excluded_ips or ipaddress.ip_address(ip).is_private or ":" in ip:
-        country = "Internal Loopback/Excluded IPv6 Target"
-        is_blacklisted = False
-        attacks = 0
-        reports = 0
-    else:
-        country = get_ip_country(ip)
-        blacklist_status = check_ip_blacklist_cached(ip)
-        is_blacklisted = blacklist_status["blacklisted"]
-        attacks = blacklist_status.get("attacks", 0)
-        reports = blacklist_status.get("reports", 0)
+    country = enrichment.get_ip_country(ip)
+    reputation = enrichment.check_ip_reputation(ip)
+    is_blacklisted = reputation["blacklisted"]
 
-    with get_db_connection() as conn:
-        conn.execute("""
-            INSERT INTO network_requests (ip, type, country, summary, blacklisted, attacks, reports)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (ip, "IPv4", country, summary, "Yes" if is_blacklisted else "No", attacks, reports))
-        conn.commit()
+    db_writer.submit(_SQL_INSERT_TELEMETRY,
+                     (ip, "IPv4", country, summary,
+                      "Yes" if is_blacklisted else "No",
+                      reputation["attacks"], reputation["reports"]))
 
-    # Audit Log Tracking and AI Escalation triggers
-    log_message = f"Network Packet Ingested from source address: {ip} ({country}) - Target Infrastructure Blacklisted State: {is_blacklisted}"
+    log_message = (f"Network Packet Ingested from source address: {ip} ({country}) "
+                   f"- Target Infrastructure Blacklisted State: {is_blacklisted}")
     save_log(log_message)
     if is_blacklisted:
         notify_ai(log_message)
@@ -317,29 +384,15 @@ def _handle_completed_flow(flow):
     verdict = result["verdict"]
     confidence = float(result["confidence"])
     src = flow.src_ip
-    try:
-        if ":" in src or ipaddress.ip_address(src).is_private:
-            country = "Internal/Private Range (Non-Routable)"
-        else:
-            country = get_ip_country(src)
-    except ValueError:
-        country = "Unknown"
+    # TTL-cached; for a flow whose packets were just enriched this is a cache hit.
+    country = enrichment.get_ip_country(src)
 
     total_pkts = flow.fwd_packets + flow.bwd_packets
     summary = (f"Flow {flow.src_ip}:{flow.src_port} -> {flow.dst_ip}:{flow.dst_port} "
                f"proto={flow.proto} pkts={total_pkts} dur={flow.duration_s:.2f}s")
 
-    try:
-        with get_db_connection() as conn:
-            conn.execute("""
-                INSERT INTO network_requests
-                    (ip, type, country, summary, blacklisted, attacks, reports,
-                     cnn_verdict, cnn_confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (src, "FLOW", country, summary, "No", 0, 0, verdict, confidence))
-            conn.commit()
-    except Exception as e:
-        print(f"[ERROR] Failed to persist flow verdict (continuing): {e}")
+    db_writer.submit(_SQL_INSERT_FLOW,
+                     (src, "FLOW", country, summary, "No", 0, 0, verdict, confidence))
 
     save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}) - {summary}")
     socketio.emit('cnn_verdict', {
@@ -350,8 +403,9 @@ def _handle_completed_flow(flow):
 
 def _ingest_packet_flows(packet):
     """Feed one packet into the flow tracker and classify any completed flows.
-    Shared by live sniffing and pcap replay so both run the identical detection
-    path. Guarded so a parsing/tracking error never takes down the caller."""
+    Runs on an enrichment worker. The tracker mutation is locked (workers share
+    one tracker); classification deliberately happens OUTSIDE the lock so the
+    expensive part stays parallel."""
     try:
         meta = ft.meta_from_scapy(packet)
     except Exception as e:
@@ -360,41 +414,82 @@ def _ingest_packet_flows(packet):
     if meta is None:
         return
     try:
-        for flow in flow_tracker.update(meta):
-            _handle_completed_flow(flow)
+        with _flow_lock:
+            completed = flow_tracker.update(meta)
     except Exception as e:
         print(f"[ERROR] Flow tracking failed (continuing): {e}")
+        return
+    for flow in completed:
+        _handle_completed_flow(flow)
 
 
-def packet_callback(packet):
-    """Unified capture entry point for BOTH live sniffing and pcap replay. Does
-    per-packet telemetry and feeds the packet into the flow tracker; completed
-    flows are classified and their verdicts persisted + emitted."""
+# Telemetry is enabled per-run rather than per-packet: replay turns it on via
+# replay_pcap(with_telemetry=True); live sniffing always does it.
+_telemetry_enabled = True
+
+
+def _process_captured_packet(packet):
+    """Stage 2 body: everything the sniff thread used to do inline. Called only
+    from enrichment workers."""
     if not (packet.haslayer(IP) and (packet.haslayer(TCP) or packet.haslayer(UDP))):
         return
-    _record_packet_telemetry(packet)
+    if _telemetry_enabled:
+        _record_packet_telemetry(packet)
     _ingest_packet_flows(packet)
 
 
-def replay_pcap(path, with_telemetry=False):
-    """Replay a .pcap/.pcapng through the SAME flow-detection path as live
-    sniffing. Reuses _ingest_packet_flows + _handle_completed_flow, so verdicts
-    are persisted and emitted exactly as they are for live traffic. Per-packet
-    geo/blocklist telemetry is off by default (it does blocking HTTP per packet;
-    it is the live path's job, not replay's). Returns the packet count."""
+def packet_callback(packet):
+    """Stage 1: the sniff thread's ONLY job -- hand the packet to the pipeline.
+
+    This must stay trivial. It performs no geo/reputation/DB/classify work; if the
+    capture queue is full the packet is dropped and counted rather than blocking,
+    because a blocked sniffer stops seeing all traffic.
+    """
+    capture_queue.offer(packet)
+
+
+def replay_pcap(path, with_telemetry=False, drop_on_overflow=False):
+    """Replay a .pcap/.pcapng through the SAME pipeline as live sniffing.
+
+    Packets go through capture_queue -> enrichment workers -> write_queue -> DB
+    writer, exactly as live traffic does, so replay exercises the real path.
+
+    Unlike the sniffer, a file producer applies backpressure by default
+    (`put_blocking`): there is no live traffic to miss, so replay stays lossless
+    and its counts are deterministic. Pass drop_on_overflow=True to exercise the
+    drop path deliberately (flood testing). Returns the packet count read.
+    """
+    global _telemetry_enabled
     from scapy.utils import PcapReader
+    start_pipeline()
+    _telemetry_enabled = with_telemetry
     count = 0
-    with PcapReader(path) as reader:
-        for pkt in reader:
-            count += 1
-            if with_telemetry and pkt.haslayer(IP) and \
-               (pkt.haslayer(TCP) or pkt.haslayer(UDP)):
-                _record_packet_telemetry(pkt)
-            _ingest_packet_flows(pkt)
-    # End of capture: flush any still-open flows through the same handler.
-    for flow in flow_tracker.flush():
-        _handle_completed_flow(flow)
+    try:
+        with PcapReader(path) as reader:
+            for pkt in reader:
+                count += 1
+                if drop_on_overflow:
+                    capture_queue.offer(pkt)
+                else:
+                    capture_queue.put_blocking(pkt)
+        # Wait for the workers to finish everything we queued.
+        capture_queue.join()
+        # End of capture: flush still-open flows through the same handler.
+        with _flow_lock:
+            remaining = flow_tracker.flush()
+        for flow in remaining:
+            _handle_completed_flow(flow)
+        db_writer.drain()
+    finally:
+        _telemetry_enabled = True
     return count
+
+
+def _bench_drain():
+    """Block until the pipeline is fully idle. Used by the throughput benchmark so
+    it times the work, not just the enqueue."""
+    capture_queue.join()
+    db_writer.drain()
 
 
 def flow_expiry_worker():
@@ -403,7 +498,9 @@ def flow_expiry_worker():
     while True:
         time.sleep(5)
         try:
-            for flow in flow_tracker.expire():
+            with _flow_lock:
+                expired = flow_tracker.expire()
+            for flow in expired:
                 _handle_completed_flow(flow)
         except Exception as e:
             print(f"[ERROR] Flow expiry worker error (continuing): {e}")
@@ -438,33 +535,42 @@ def search_logs():
     return jsonify([{"timestamp": log["timestamp"], "log": log["log"]} for log in logs])
 
 
+# All writes go through the single DB-writer thread. No other thread may write to
+# SQLite -- see pipeline.BatchedDBWriter for why one batched writer beats many.
 def save_metrics(cpu, memory, disk, network):
-    with get_db_connection() as conn:
-        conn.execute("""
-            INSERT INTO metrics (timestamp, cpu, memory, disk, network) 
-            VALUES (?, ?, ?, ?, ?)
-        """, (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), cpu, memory, disk, network))
-        conn.commit()
+    db_writer.submit(_SQL_INSERT_METRIC,
+                     (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                      cpu, memory, disk, network))
+
 
 def save_log(log):
-    with get_db_connection() as conn:
-        conn.execute("""
-            INSERT INTO logs (timestamp, log) 
-            VALUES (?, ?)
-        """, (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), log))
-        conn.commit()
+    db_writer.submit(_SQL_INSERT_LOG,
+                     (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), log))
 
 
 # AI Alert notification processing layer (Forces short parsing directly down to the local edge agent)
 def notify_ai(message):
-    short_prompt = f"Anomalous Incident Event Captured: {message}\nProvide a highly concise threat description summary in English using a maximum of 1-2 sentences."
-    # OllamaClient.chat() posts to /v1/chat/completions (Ollama's OpenAI-compatible
-    # endpoint), so the reply is in choices[0].message.content.
-    result = ollama_client.chat(
-        model='llama3.2',
-        messages=[{'role': 'user', 'content': short_prompt}],
-    )
-    response = result['choices'][0]['message']['content']
+    """Ask the local Ollama agent to summarise an incident.
+
+    Fully guarded: this runs on enrichment workers, and Ollama is an optional
+    local service. If it is down, ollama_lib raises (connection refused, or a
+    non-200 status) -- an unhandled exception here would kill the worker thread
+    and silently shrink the pipeline. Degrade instead.
+    """
+    short_prompt = (f"Anomalous Incident Event Captured: {message}\n"
+                    f"Provide a highly concise threat description summary in "
+                    f"English using a maximum of 1-2 sentences.")
+    try:
+        # OllamaClient.chat() posts to /v1/chat/completions (Ollama's OpenAI-
+        # compatible endpoint), so the reply is in choices[0].message.content.
+        result = ollama_client.chat(
+            model='llama3.2',
+            messages=[{'role': 'user', 'content': short_prompt}],
+        )
+        response = result['choices'][0]['message']['content']
+    except Exception as e:
+        print(f"[WARN] Ollama edge alert unavailable (continuing): {e}")
+        return
     save_log(f"SecOps-AI Edge Alert Notification: {response}")
 
 
@@ -496,36 +602,13 @@ def server_status():
     })
 
 
-def check_ip_blacklist_cached(ip):
-    with get_db_connection() as conn:
-        result = conn.execute("SELECT blacklisted, attacks, reports FROM network_requests WHERE ip = ?", (ip,)).fetchone()
-        if result:
-            
-            return {
-                "blacklisted": result["blacklisted"] == "Yes",
-                "attacks": result["attacks"],
-                "reports": result["reports"]
-            }
-        
-        
-        url = f"http://api.blocklist.de/api.php?ip={ip}&format=json"
-        try:
-            response = requests.get(url)
-            data = response.json() if response.status_code == 200 else {"blacklisted": False}
-            blacklisted = data.get("attacks", 0) > 0
-            attacks = data.get("attacks", 0)
-            reports = data.get("reports", 0)
-            
-            
-            conn.execute(
-                "INSERT INTO network_requests (ip, blacklisted, attacks, reports) VALUES (?, ?, ?, ?)",
-                (ip, "Yes" if blacklisted else "No", attacks, reports)
-            )
-            conn.commit()
-
-            return {"blacklisted": blacklisted, "attacks": attacks, "reports": reports}
-        except requests.RequestException:
-            return {"blacklisted": False}
+# check_ip_blacklist_cached() lived here. It used the network_requests *data*
+# table as its cache: it SELECTed the table to decide whether to call
+# blocklist.de, then INSERTed a second, half-empty row for the IP on top of the
+# one the telemetry path already wrote. The "cache" never expired, and geo had no
+# cache at all. It is replaced by enrichment.check_ip_reputation() /
+# enrichment.get_ip_country(), which are backed by real TTLCaches and never write
+# to the database.
 
 
 def extract_ip_from_message(message):
@@ -610,6 +693,30 @@ def get_network_requests():
         return jsonify({"error": "Failed to safely fetch data arrays from persistent sqlite table parameters"}), 500
 
 
+@app.route('/pipeline-stats', methods=['GET'])
+def get_pipeline_stats():
+    """Pipeline health, including the dropped-packet counter. Feeds the Phase 3
+    stat header; exposed now so drops are observable rather than silent."""
+    return jsonify(pipeline_stats())
+
+
+def drop_monitor(interval=30):
+    """Log the dropped-packet count whenever it grows. A drop that nobody can see
+    is indistinguishable from working correctly, which is the failure mode this
+    whole stage exists to avoid."""
+    last = 0
+    while True:
+        time.sleep(interval)
+        dropped = capture_queue.dropped
+        if dropped > last:
+            msg = (f"Capture queue overflow: {dropped - last} packets dropped in the "
+                   f"last {interval}s ({dropped} total). Enrichment is behind the "
+                   f"capture rate.")
+            print(f"[WARN] {msg}")
+            save_log(f"SecOps-AI Pipeline: {msg}")
+            last = dropped
+
+
 # Spin up packet sniffing tracking primitives as an asynchronous listener thread task
 def start_sniffing():
     sniff(prn=packet_callback, store=0)
@@ -633,12 +740,22 @@ if __name__ == '__main__':
     print("🛡️ Real-Time Packet Sniffing Engine & Groq LLM Triage Accelerator Active")
     print("="*75)
 
-    # Fire up the packet sniffer thread
+    # Stage 2 + 3: enrichment workers and the single batched DB writer. Must be up
+    # before the sniffer starts pushing into the capture queue.
+    start_pipeline()
+    print(f"⚙️  Pipeline: {config.ENRICHMENT_WORKERS} enrichment workers -> 1 batched DB writer (WAL); "
+          f"capture queue max {config.CAPTURE_QUEUE_MAX}")
+
+    # Stage 1: capture only.
     threading.Thread(target=start_sniffing, daemon=True).start()
 
     # Emit flow verdicts even when traffic goes quiet
     threading.Thread(target=flow_expiry_worker, daemon=True).start()
 
-    # Force Flask-SocketIO to deploy utilizing the eventlet production layer wrapper
+    # Surface dropped packets: a silent drop is a lie, a counted drop is a metric.
+    threading.Thread(target=drop_monitor, daemon=True).start()
+
+    # async_mode='threading' (see SocketIO above): the app is threaded throughout,
+    # so there is no eventlet import and no monkey-patching.
     socketio.run(app, debug=True, host='127.0.0.1', port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
     

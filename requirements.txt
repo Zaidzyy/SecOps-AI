@@ -22,6 +22,9 @@ scapy==2.7.0
 # Host metrics, enrichment, config
 psutil==7.2.2
 GPUtil==1.4.0
+# TTL caches in front of the geo/reputation APIs (enrichment.py). Without these,
+# every packet from a public IP costs an HTTP round trip.
+cachetools==7.1.4
 # GPUtil 1.4.0 does `from distutils import spawn`, but distutils was removed from
 # the stdlib in Python 3.12. setuptools re-provides it, so it is a REAL runtime
 # dependency here, not a build tool. (It was previously pulled in by accident, as

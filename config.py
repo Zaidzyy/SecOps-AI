@@ -38,6 +38,11 @@ FLOW_ACTIVE_TIMEOUT_S = 120.0
 # Canonical feature order. This is OUR contract (the upstream model never
 # published theirs). flow_tracker emits these names; cnn_engine consumes them
 # in exactly this order; the trainer aligns CIC-IDS-2017 columns to them.
+#
+# NOTE on the flag features: despite the "_count" names (inherited from
+# CICFlowMeter's column titles) these are BINARY PRESENCE indicators, 0.0 or 1.0
+# -- that is how CIC-IDS-2017 defines them and how the model was trained. See
+# flow_tracker.Flow.to_features().
 FEATURE_ORDER = [
     "duration_s",    # flow wall-clock duration in seconds
     "protocol",      # IP protocol number (6=TCP, 17=UDP, other=proto no.)
@@ -45,8 +50,36 @@ FEATURE_ORDER = [
     "bwd_packets",   # packets responder -> initiator
     "fwd_bytes",     # payload bytes initiator -> responder
     "bwd_bytes",     # payload bytes responder -> initiator
-    "syn_count",     # TCP packets in the flow with SYN set
-    "rst_count",     # TCP packets in the flow with RST set
-    "fin_count",     # TCP packets in the flow with FIN set
-    "ack_count",     # TCP packets in the flow with ACK set
+    "syn_count",     # 1.0 if any packet in the flow had SYN set, else 0.0
+    "rst_count",     # 1.0 if any packet in the flow had RST set, else 0.0
+    "fin_count",     # 1.0 if any packet in the flow had FIN set, else 0.0
+    "ack_count",     # 1.0 if any packet in the flow had ACK set, else 0.0
 ]
+
+# --- Ingestion pipeline (Phase 2) ---
+# 3 stages: sniff thread -> capture_queue -> N enrichment workers -> write_queue
+# -> ONE batched DB writer. See pipeline.py.
+
+# Bounded so a slow consumer can never grow memory without limit. On overflow we
+# DROP and count rather than block: a blocked sniffer stops seeing ALL traffic,
+# which is strictly worse than losing some packets. Sized to absorb bursts.
+CAPTURE_QUEUE_MAX = 20000
+
+# Enrichment is I/O-bound (geo/reputation HTTP on cache misses), so more threads
+# than cores is correct here; they spend most of their time waiting.
+ENRICHMENT_WORKERS = 8
+
+# The DB writer is the only thread allowed to write SQLite. SQLite serializes
+# writes, so extra writer threads would just trade I/O-blocking for lock-blocking.
+WRITE_QUEUE_MAX = 50000
+DB_BATCH_SIZE = 200            # flush when this many rows are pending...
+DB_FLUSH_INTERVAL_S = 0.5      # ...or this long has passed, whichever is first.
+
+# --- Enrichment caches ---
+# Each IP hits the network at most once per TTL window. Geo data is effectively
+# static, so it can be cached far longer than reputation, which changes.
+GEO_CACHE_TTL_S = 24 * 3600
+GEO_CACHE_MAX = 16384
+REP_CACHE_TTL_S = 900
+REP_CACHE_MAX = 16384
+ENRICHMENT_HTTP_TIMEOUT_S = 4.0

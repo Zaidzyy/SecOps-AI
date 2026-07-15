@@ -167,6 +167,9 @@ cython_debug/
 .env
 SecIDS-CNN.h5
 system_metrics.db
+# WAL sidecars (the DB writer runs SQLite in WAL mode; these appear next to it).
+system_metrics.db-wal
+system_metrics.db-shm
 
 # Packet captures and datasets are large; only the trimmed samples/ excerpt ships.
 *.pcap

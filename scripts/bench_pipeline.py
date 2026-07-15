@@ -1,0 +1,79 @@
+"""Throughput benchmark for the ingestion pipeline: sustained packets/sec.
+
+Replays a capture through app_groq's real path (capture_queue -> enrichment
+workers -> write_queue -> DB writer) and reports sustained packets/sec.
+
+The network is STUBBED with a fixed simulated latency, for two reasons:
+  1. We must not fire thousands of requests at geolocation-db.com / blocklist.de.
+  2. It isolates what we are measuring (pipeline architecture) from internet
+     jitter, so before/after numbers are comparable.
+
+SIM_MS defaults to 10ms, which is deliberately conservative -- real geo/reputation
+APIs answer in ~50-200ms, so this UNDERSTATES both the bottleneck and the gain.
+
+Runs in a temp CWD against a throwaway system_metrics.db, so it never touches
+your real one.
+
+    python scripts/make_bench_pcap.py /tmp/bench.pcap 300 2
+    python scripts/bench_pipeline.py /tmp/bench.pcap 10
+
+Reference numbers on the 4800-packet / 300-public-IP capture at sim_ms=10
+(see git history for the Phase 2 commit):
+
+    BEFORE (synchronous per-packet)   38.6 pkt/s   5701 HTTP calls
+    AFTER  (3-stage pipeline)        958.4 pkt/s    602 HTTP calls
+"""
+import os
+import sys
+import tempfile
+import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PCAP = os.path.abspath(sys.argv[1])
+SIM_MS = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
+
+os.chdir(tempfile.mkdtemp(prefix="secops_bench_"))
+sys.path.insert(0, REPO)
+
+import requests  # noqa: E402
+
+_calls = {"n": 0}
+
+
+class _Resp:
+    status_code = 200
+
+    def __init__(self, payload):
+        self._p = payload
+
+    def json(self):
+        return self._p
+
+
+def _fake_get(url, *a, **k):
+    """Simulate one geo/reputation HTTP round trip."""
+    _calls["n"] += 1
+    time.sleep(SIM_MS / 1000.0)
+    if "blocklist.de" in url:
+        return _Resp({"attacks": 0, "reports": 0})
+    return _Resp({"country_name": "Testland", "city": "Testville", "state": "TS"})
+
+
+requests.get = _fake_get
+
+import app_groq  # noqa: E402  (imported AFTER stubbing)
+
+t0 = time.perf_counter()
+replayed = app_groq.replay_pcap(PCAP, with_telemetry=True)
+app_groq._bench_drain()          # time the work, not just the enqueue
+elapsed = time.perf_counter() - t0
+
+stats = app_groq.pipeline_stats()
+print(f"packets        : {replayed}")
+print(f"elapsed        : {elapsed:.2f}s")
+print(f"THROUGHPUT     : {replayed / elapsed:,.1f} packets/sec")
+print(f"http calls     : {_calls['n']} (sim latency {SIM_MS}ms each)")
+print(f"capture dropped: {stats['capture']['dropped']}")
+print(f"db batches     : {stats['db_writer']['batches']} "
+      f"for {stats['db_writer']['written']} rows")
+print(f"cache          : {stats['enrichment_cache']}")
