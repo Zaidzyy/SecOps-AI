@@ -176,3 +176,7 @@ system_metrics.db
 
 # Local tooling artifact (empty Claude Cowork stub), not project content.
 AGENTS.md
+
+# Internal roadmap / working notes. Kept local, deliberately not part of the
+# public tree. (Present in history from earlier commits.)
+IMPROVEMENT_PLAN.md
