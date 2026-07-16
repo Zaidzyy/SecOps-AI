@@ -59,20 +59,29 @@ def test_feature_order_and_values():
     assert feats["bwd_bytes"] == 60
 
 
-def test_flag_features_are_binary_presence():
-    # CIC-IDS-2017 encodes flag columns as 0/1 presence, so to_features() must
-    # emit presence even when many packets carry the flag (real ACK-heavy flow).
+def test_flags_are_tracked_but_never_fed_to_the_model():
+    """The tracker still counts TCP flags -- teardown detection needs them -- but
+    they are NOT model input.
+
+    They were dropped from the feature contract for not transferring: CIC-IDS-2017
+    labels PortScan rows with every flag zero, while a real scan sets SYN, so a
+    model trained on them learns a property of the dataset rather than of the
+    attack. Re-adding them to to_features() would silently reintroduce that.
+    """
+    import config
     t = FlowTracker(idle_timeout=1000, active_timeout=1000)
     t.update(_pkt(1.0, "1.1.1.1", "2.2.2.2", 5000, 80, syn=True, ack=False))
     for i in range(20):  # 20 ACK-bearing packets
         t.update(_pkt(1.0 + i * 0.01, "1.1.1.1", "2.2.2.2", 5000, 80, ack=True))
     flow = t.flush()[0]
-    assert flow.ack_count == 20            # raw count retained on the Flow
-    feats = flow.to_features()
-    assert feats["ack_count"] == 1.0       # but model-facing value is binary
-    assert feats["syn_count"] == 1.0
-    assert feats["rst_count"] == 0.0
-    assert feats["fin_count"] == 0.0
+
+    assert flow.syn_count == 1              # raw counts retained on the Flow ...
+    assert flow.ack_count == 20
+
+    feats = flow.to_features()              # ... but absent from model input
+    for name in ("syn_count", "rst_count", "fin_count", "ack_count"):
+        assert name not in feats, f"{name} is not transferable; it must not be a feature"
+        assert name not in config.FEATURE_ORDER
 
 
 def test_idle_timeout_emits_flow():

@@ -1,99 +1,1869 @@
 {
   "primary_model": "gbt",
   "baseline_model": "compact Conv1D",
-  "headline_split": "dedup_stratified",
+  "headline_split": "dedup_stratified_test",
+  "operating_point": {
+    "alpha": 0.5,
+    "threshold": 0.95,
+    "constraint": "per-flow benign FPR <= 0.01, on validation",
+    "selection": "Maximises validation macro recall (0.7464) subject to per-flow benign FPR <= 0.01 (achieved 0.00148).",
+    "validation": {
+      "alpha": 0.5,
+      "threshold": 0.95,
+      "macro_recall": 0.7464,
+      "weighted_recall": 0.973,
+      "per_flow_benign_fpr": 0.00148,
+      "per_shape_benign_fpr": 0.001861,
+      "meets_fpr_budget": true,
+      "per_class_recall": {
+        "Bot": 0.9132,
+        "DDoS": 0.9902,
+        "DoS GoldenEye": 0.9574,
+        "DoS Hulk": 0.9733,
+        "DoS Slowhttptest": 0.9851,
+        "DoS slowloris": 0.9919,
+        "FTP-Patator": 0.9879,
+        "Heartbleed": 1.0,
+        "Infiltration": 0.4,
+        "PortScan": 0.9324,
+        "SSH-Patator": 0.9135,
+        "Web Attack \u2013 Brute Force": 0.0556,
+        "Web Attack \u2013 Sql Injection": 0.3333,
+        "Web Attack \u2013 XSS": 0.0156
+      }
+    },
+    "test_gbt_macro_recall": 0.7226,
+    "test_gbt_weighted_recall": 0.9744,
+    "test_gbt_benign_fpr": {
+      "per_flow_fpr": 0.001527,
+      "per_shape_fpr": 0.001687,
+      "benign_shapes": 149372,
+      "benign_flows_represented": 304447
+    }
+  },
+  "fpr_definition": "per_flow_fpr is the HEADLINE false-positive rate: each unique benign shape's error is weighted by how many real flows that shape stands for in the full dataset. per_shape_fpr counts each unique shape once and UNDERSTATES operator pain when errors land on common shapes (a 12x gap was measured on the fully class-balanced fit). Judge FPR by per_flow_fpr.",
+  "feature_order": [
+    "duration_s",
+    "protocol",
+    "fwd_packets",
+    "bwd_packets",
+    "fwd_bytes",
+    "bwd_bytes"
+  ],
+  "dropped_features": {
+    "features": [
+      "syn_count",
+      "rst_count",
+      "fin_count",
+      "ack_count"
+    ],
+    "reason": "Non-transferable. CIC-IDS-2017 PortScan rows carry all TCP flags zero, but a real port scan sets SYN, so the model learned a dataset artifact that cannot hold at serving time: 1.00 recall on dataset PortScan rows, zero detections on live scan traffic. Removed 2026-07-16."
+  },
+  "class_weighting": "w ~ 1/n^alpha per class (benign is a class), alpha=0.5. alpha and threshold were chosen by maximising validation macro recall subject to per-flow benign FPR <= 0.01; see metrics.json operating_point/frontier.",
+  "how_to_read": "Read macro_recall, not recall. The binary `recall` under each model, and the weighted_recall in the per-class block, are averages over a test set where DoS Hulk + PortScan + DDoS are ~95% of attack rows -- they can look excellent while a whole attack class is never detected. macro_recall counts every attack class once. The per_class table is the honest answer and the only basis for a coverage claim. For false positives, read gbt_benign_fpr.per_flow_fpr.",
+  "frontier": {
+    "note": "Validation-split measurements for every (alpha, threshold) grid point; the operating point was picked from this table and ONLY the chosen point was then scored on test.",
+    "alphas": [
+      0.0,
+      0.15,
+      0.25,
+      0.35,
+      0.5
+    ],
+    "thresholds": [
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95
+    ],
+    "fpr_budget": 0.01,
+    "rows": [
+      {
+        "alpha": 0.0,
+        "threshold": 0.5,
+        "macro_recall": 0.6158,
+        "weighted_recall": 0.9835,
+        "per_flow_benign_fpr": 0.001287,
+        "per_shape_benign_fpr": 0.002069,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5585,
+          "DDoS": 0.9989,
+          "DoS GoldenEye": 0.9709,
+          "DoS Hulk": 0.99,
+          "DoS Slowhttptest": 0.9911,
+          "DoS slowloris": 0.9907,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.777,
+          "SSH-Patator": 0.9315,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.55,
+        "macro_recall": 0.6051,
+        "weighted_recall": 0.9823,
+        "per_flow_benign_fpr": 0.001163,
+        "per_shape_benign_fpr": 0.001814,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5509,
+          "DDoS": 0.9989,
+          "DoS GoldenEye": 0.9578,
+          "DoS Hulk": 0.9898,
+          "DoS Slowhttptest": 0.9901,
+          "DoS slowloris": 0.9907,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.652,
+          "SSH-Patator": 0.9282,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.6,
+        "macro_recall": 0.6005,
+        "weighted_recall": 0.9819,
+        "per_flow_benign_fpr": 0.001111,
+        "per_shape_benign_fpr": 0.001754,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5396,
+          "DDoS": 0.9989,
+          "DoS GoldenEye": 0.9569,
+          "DoS Hulk": 0.9896,
+          "DoS Slowhttptest": 0.9901,
+          "DoS slowloris": 0.9907,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.6014,
+          "SSH-Patator": 0.9266,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.65,
+        "macro_recall": 0.5594,
+        "weighted_recall": 0.98,
+        "per_flow_benign_fpr": 0.000895,
+        "per_shape_benign_fpr": 0.001533,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5396,
+          "DDoS": 0.9987,
+          "DoS GoldenEye": 0.953,
+          "DoS Hulk": 0.9887,
+          "DoS Slowhttptest": 0.9901,
+          "DoS slowloris": 0.9872,
+          "FTP-Patator": 0.9736,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.3851,
+          "SSH-Patator": 0.9233,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.7,
+        "macro_recall": 0.5523,
+        "weighted_recall": 0.9788,
+        "per_flow_benign_fpr": 0.000814,
+        "per_shape_benign_fpr": 0.001386,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5396,
+          "DDoS": 0.9985,
+          "DoS GoldenEye": 0.9501,
+          "DoS Hulk": 0.9875,
+          "DoS Slowhttptest": 0.9891,
+          "DoS slowloris": 0.9872,
+          "FTP-Patator": 0.9736,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.3074,
+          "SSH-Patator": 0.9233,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.75,
+        "macro_recall": 0.5457,
+        "weighted_recall": 0.9781,
+        "per_flow_benign_fpr": 0.000765,
+        "per_shape_benign_fpr": 0.001285,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5132,
+          "DDoS": 0.9985,
+          "DoS GoldenEye": 0.9433,
+          "DoS Hulk": 0.9873,
+          "DoS Slowhttptest": 0.9842,
+          "DoS slowloris": 0.9872,
+          "FTP-Patator": 0.9736,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.2534,
+          "SSH-Patator": 0.9233,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.8,
+        "macro_recall": 0.5424,
+        "weighted_recall": 0.9757,
+        "per_flow_benign_fpr": 0.000657,
+        "per_shape_benign_fpr": 0.001064,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5094,
+          "DDoS": 0.9983,
+          "DoS GoldenEye": 0.937,
+          "DoS Hulk": 0.9841,
+          "DoS Slowhttptest": 0.9772,
+          "DoS slowloris": 0.9733,
+          "FTP-Patator": 0.9692,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.2466,
+          "SSH-Patator": 0.9217,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.85,
+        "macro_recall": 0.5338,
+        "weighted_recall": 0.9731,
+        "per_flow_benign_fpr": 0.000461,
+        "per_shape_benign_fpr": 0.00091,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.4604,
+          "DDoS": 0.9973,
+          "DoS GoldenEye": 0.9356,
+          "DoS Hulk": 0.9814,
+          "DoS Slowhttptest": 0.9673,
+          "DoS slowloris": 0.9466,
+          "FTP-Patator": 0.9681,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.2264,
+          "SSH-Patator": 0.9201,
+          "Web Attack \u2013 Brute Force": 0.0694,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.9,
+        "macro_recall": 0.5113,
+        "weighted_recall": 0.9619,
+        "per_flow_benign_fpr": 0.000265,
+        "per_shape_benign_fpr": 0.000542,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.4491,
+          "DDoS": 0.9918,
+          "DoS GoldenEye": 0.8081,
+          "DoS Hulk": 0.975,
+          "DoS Slowhttptest": 0.9287,
+          "DoS slowloris": 0.8978,
+          "FTP-Patator": 0.9648,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.2264,
+          "SSH-Patator": 0.9168,
+          "Web Attack \u2013 Brute Force": 0.0,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.0,
+        "threshold": 0.95,
+        "macro_recall": 0.4342,
+        "weighted_recall": 0.939,
+        "per_flow_benign_fpr": 7.8e-05,
+        "per_shape_benign_fpr": 0.000161,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.4491,
+          "DDoS": 0.9817,
+          "DoS GoldenEye": 0.7733,
+          "DoS Hulk": 0.9675,
+          "DoS Slowhttptest": 0.3653,
+          "DoS slowloris": 0.59,
+          "FTP-Patator": 0.9099,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.1284,
+          "SSH-Patator": 0.9135,
+          "Web Attack \u2013 Brute Force": 0.0,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.5,
+        "macro_recall": 0.7342,
+        "weighted_recall": 0.9892,
+        "per_flow_benign_fpr": 0.186895,
+        "per_shape_benign_fpr": 0.004345,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9993,
+          "DoS GoldenEye": 0.9816,
+          "DoS Hulk": 0.9934,
+          "DoS Slowhttptest": 0.997,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9901,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9837,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.55,
+        "macro_recall": 0.7314,
+        "weighted_recall": 0.9875,
+        "per_flow_benign_fpr": 0.123645,
+        "per_shape_benign_fpr": 0.003515,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.9772,
+          "DoS Hulk": 0.9909,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9901,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.973,
+          "SSH-Patator": 0.9723,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.6,
+        "macro_recall": 0.7022,
+        "weighted_recall": 0.9867,
+        "per_flow_benign_fpr": 0.123455,
+        "per_shape_benign_fpr": 0.00314,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.9989,
+          "DoS GoldenEye": 0.9748,
+          "DoS Hulk": 0.9898,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.973,
+          "SSH-Patator": 0.969,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.65,
+        "macro_recall": 0.6933,
+        "weighted_recall": 0.9858,
+        "per_flow_benign_fpr": 0.002,
+        "per_shape_benign_fpr": 0.002651,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.917,
+          "DDoS": 0.9988,
+          "DoS GoldenEye": 0.9743,
+          "DoS Hulk": 0.9896,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.9595,
+          "SSH-Patator": 0.9299,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.7,
+        "macro_recall": 0.66,
+        "weighted_recall": 0.9846,
+        "per_flow_benign_fpr": 0.00183,
+        "per_shape_benign_fpr": 0.002336,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.8,
+          "DDoS": 0.9987,
+          "DoS GoldenEye": 0.9617,
+          "DoS Hulk": 0.9892,
+          "DoS Slowhttptest": 0.9931,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.9595,
+          "SSH-Patator": 0.9299,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.75,
+        "macro_recall": 0.6276,
+        "weighted_recall": 0.9828,
+        "per_flow_benign_fpr": 0.001506,
+        "per_shape_benign_fpr": 0.001721,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5547,
+          "DDoS": 0.9987,
+          "DoS GoldenEye": 0.9593,
+          "DoS Hulk": 0.9878,
+          "DoS Slowhttptest": 0.9931,
+          "DoS slowloris": 0.9942,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.9561,
+          "SSH-Patator": 0.9299,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.8,
+        "macro_recall": 0.6251,
+        "weighted_recall": 0.9815,
+        "per_flow_benign_fpr": 0.001291,
+        "per_shape_benign_fpr": 0.00154,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5547,
+          "DDoS": 0.9986,
+          "DoS GoldenEye": 0.9569,
+          "DoS Hulk": 0.9858,
+          "DoS Slowhttptest": 0.9911,
+          "DoS slowloris": 0.9942,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.9459,
+          "SSH-Patator": 0.9266,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.85,
+        "macro_recall": 0.6047,
+        "weighted_recall": 0.9792,
+        "per_flow_benign_fpr": 0.000703,
+        "per_shape_benign_fpr": 0.001285,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5547,
+          "DDoS": 0.9982,
+          "DoS GoldenEye": 0.9525,
+          "DoS Hulk": 0.9844,
+          "DoS Slowhttptest": 0.9881,
+          "DoS slowloris": 0.993,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.6791,
+          "SSH-Patator": 0.9184,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.9,
+        "macro_recall": 0.5899,
+        "weighted_recall": 0.9753,
+        "per_flow_benign_fpr": 0.000572,
+        "per_shape_benign_fpr": 0.001024,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5547,
+          "DDoS": 0.995,
+          "DoS GoldenEye": 0.9462,
+          "DoS Hulk": 0.9816,
+          "DoS Slowhttptest": 0.9812,
+          "DoS slowloris": 0.9907,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.4966,
+          "SSH-Patator": 0.9152,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.15,
+        "threshold": 0.95,
+        "macro_recall": 0.5339,
+        "weighted_recall": 0.9602,
+        "per_flow_benign_fpr": 0.000261,
+        "per_shape_benign_fpr": 0.000529,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.517,
+          "DDoS": 0.9855,
+          "DoS GoldenEye": 0.8101,
+          "DoS Hulk": 0.9724,
+          "DoS Slowhttptest": 0.9475,
+          "DoS slowloris": 0.9268,
+          "FTP-Patator": 0.9736,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.4155,
+          "SSH-Patator": 0.9119,
+          "Web Attack \u2013 Brute Force": 0.0139,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.5,
+        "macro_recall": 0.9009,
+        "weighted_recall": 0.9957,
+        "per_flow_benign_fpr": 0.204861,
+        "per_shape_benign_fpr": 0.014594,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9887,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.9864,
+          "DoS Hulk": 0.9946,
+          "DoS Slowhttptest": 0.995,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9821,
+          "Web Attack \u2013 Brute Force": 0.9722,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9609
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.55,
+        "macro_recall": 0.8202,
+        "weighted_recall": 0.992,
+        "per_flow_benign_fpr": 0.130298,
+        "per_shape_benign_fpr": 0.00885,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9887,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.9859,
+          "DoS Hulk": 0.9925,
+          "DoS Slowhttptest": 0.995,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9804,
+          "Web Attack \u2013 Brute Force": 0.5486,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.5938
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.6,
+        "macro_recall": 0.7308,
+        "weighted_recall": 0.9881,
+        "per_flow_benign_fpr": 0.127631,
+        "per_shape_benign_fpr": 0.003809,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.985,
+          "DoS Hulk": 0.9914,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.4,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9788,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.65,
+        "macro_recall": 0.7306,
+        "weighted_recall": 0.9877,
+        "per_flow_benign_fpr": 0.127474,
+        "per_shape_benign_fpr": 0.003622,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9991,
+          "DoS GoldenEye": 0.985,
+          "DoS Hulk": 0.9906,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.4,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9772,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.7,
+        "macro_recall": 0.7302,
+        "weighted_recall": 0.9872,
+        "per_flow_benign_fpr": 0.127412,
+        "per_shape_benign_fpr": 0.003495,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9988,
+          "DoS GoldenEye": 0.9797,
+          "DoS Hulk": 0.9902,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.4,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9772,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.75,
+        "macro_recall": 0.672,
+        "weighted_recall": 0.9852,
+        "per_flow_benign_fpr": 0.049219,
+        "per_shape_benign_fpr": 0.002905,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9988,
+          "DoS GoldenEye": 0.97,
+          "DoS Hulk": 0.9884,
+          "DoS Slowhttptest": 0.9931,
+          "DoS slowloris": 0.9942,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.9358,
+          "SSH-Patator": 0.9299,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.8,
+        "macro_recall": 0.6545,
+        "weighted_recall": 0.9831,
+        "per_flow_benign_fpr": 0.001314,
+        "per_shape_benign_fpr": 0.002209,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.8453,
+          "DDoS": 0.9985,
+          "DoS GoldenEye": 0.9695,
+          "DoS Hulk": 0.9868,
+          "DoS Slowhttptest": 0.9891,
+          "DoS slowloris": 0.993,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.8378,
+          "SSH-Patator": 0.9299,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.85,
+        "macro_recall": 0.6288,
+        "weighted_recall": 0.9801,
+        "per_flow_benign_fpr": 0.000745,
+        "per_shape_benign_fpr": 0.001352,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5472,
+          "DDoS": 0.998,
+          "DoS GoldenEye": 0.9491,
+          "DoS Hulk": 0.9853,
+          "DoS Slowhttptest": 0.9891,
+          "DoS slowloris": 0.9919,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.2,
+          "PortScan": 0.8243,
+          "SSH-Patator": 0.9201,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.9,
+        "macro_recall": 0.5956,
+        "weighted_recall": 0.9744,
+        "per_flow_benign_fpr": 0.000578,
+        "per_shape_benign_fpr": 0.001031,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5321,
+          "DDoS": 0.9949,
+          "DoS GoldenEye": 0.9404,
+          "DoS Hulk": 0.9794,
+          "DoS Slowhttptest": 0.9812,
+          "DoS slowloris": 0.9884,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.6182,
+          "SSH-Patator": 0.9201,
+          "Web Attack \u2013 Brute Force": 0.0625,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.25,
+        "threshold": 0.95,
+        "macro_recall": 0.548,
+        "weighted_recall": 0.9639,
+        "per_flow_benign_fpr": 0.00034,
+        "per_shape_benign_fpr": 0.000663,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5245,
+          "DDoS": 0.9854,
+          "DoS GoldenEye": 0.937,
+          "DoS Hulk": 0.9709,
+          "DoS Slowhttptest": 0.9446,
+          "DoS slowloris": 0.9477,
+          "FTP-Patator": 0.9725,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.4324,
+          "SSH-Patator": 0.9184,
+          "Web Attack \u2013 Brute Force": 0.0382,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.5,
+        "macro_recall": 0.9043,
+        "weighted_recall": 0.9966,
+        "per_flow_benign_fpr": 0.206534,
+        "per_shape_benign_fpr": 0.015498,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9925,
+          "DDoS": 0.9993,
+          "DoS GoldenEye": 0.9869,
+          "DoS Hulk": 0.9957,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9797,
+          "SSH-Patator": 0.9918,
+          "Web Attack \u2013 Brute Force": 0.9826,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9766
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.55,
+        "macro_recall": 0.9024,
+        "weighted_recall": 0.9954,
+        "per_flow_benign_fpr": 0.200404,
+        "per_shape_benign_fpr": 0.014608,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9925,
+          "DDoS": 0.9993,
+          "DoS GoldenEye": 0.9835,
+          "DoS Hulk": 0.9938,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9886,
+          "Web Attack \u2013 Brute Force": 0.9826,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9609
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.6,
+        "macro_recall": 0.902,
+        "weighted_recall": 0.9942,
+        "per_flow_benign_fpr": 0.136065,
+        "per_shape_benign_fpr": 0.013711,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9925,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.9826,
+          "DoS Hulk": 0.9915,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9869,
+          "Web Attack \u2013 Brute Force": 0.9826,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9609
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.65,
+        "macro_recall": 0.9019,
+        "weighted_recall": 0.9941,
+        "per_flow_benign_fpr": 0.135072,
+        "per_shape_benign_fpr": 0.013584,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9925,
+          "DDoS": 0.9992,
+          "DoS GoldenEye": 0.9821,
+          "DoS Hulk": 0.9914,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9853,
+          "Web Attack \u2013 Brute Force": 0.9826,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9609
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.7,
+        "macro_recall": 0.8662,
+        "weighted_recall": 0.9917,
+        "per_flow_benign_fpr": 0.130631,
+        "per_shape_benign_fpr": 0.009975,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9585,
+          "DDoS": 0.9991,
+          "DoS GoldenEye": 0.9797,
+          "DoS Hulk": 0.9905,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9912,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9821,
+          "Web Attack \u2013 Brute Force": 0.684,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.8047
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.75,
+        "macro_recall": 0.7666,
+        "weighted_recall": 0.987,
+        "per_flow_benign_fpr": 0.127285,
+        "per_shape_benign_fpr": 0.00324,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9585,
+          "DDoS": 0.999,
+          "DoS GoldenEye": 0.9753,
+          "DoS Hulk": 0.99,
+          "DoS Slowhttptest": 0.996,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9764,
+          "SSH-Patator": 0.9772,
+          "Web Attack \u2013 Brute Force": 0.0938,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.8,
+        "macro_recall": 0.7633,
+        "weighted_recall": 0.986,
+        "per_flow_benign_fpr": 0.127167,
+        "per_shape_benign_fpr": 0.003006,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9585,
+          "DDoS": 0.9987,
+          "DoS GoldenEye": 0.9719,
+          "DoS Hulk": 0.989,
+          "DoS Slowhttptest": 0.9941,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9493,
+          "SSH-Patator": 0.9755,
+          "Web Attack \u2013 Brute Force": 0.0833,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.85,
+        "macro_recall": 0.7571,
+        "weighted_recall": 0.9841,
+        "per_flow_benign_fpr": 0.049666,
+        "per_shape_benign_fpr": 0.002511,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9585,
+          "DDoS": 0.9984,
+          "DoS GoldenEye": 0.9641,
+          "DoS Hulk": 0.9871,
+          "DoS Slowhttptest": 0.9911,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.5,
+          "Infiltration": 0.6,
+          "PortScan": 0.9493,
+          "SSH-Patator": 0.925,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.9,
+        "macro_recall": 0.6837,
+        "weighted_recall": 0.9815,
+        "per_flow_benign_fpr": 0.00101,
+        "per_shape_benign_fpr": 0.001848,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.8868,
+          "DDoS": 0.9979,
+          "DoS GoldenEye": 0.952,
+          "DoS Hulk": 0.9849,
+          "DoS Slowhttptest": 0.9901,
+          "DoS slowloris": 0.9942,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.8514,
+          "SSH-Patator": 0.9168,
+          "Web Attack \u2013 Brute Force": 0.0764,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.35,
+        "threshold": 0.95,
+        "macro_recall": 0.5635,
+        "weighted_recall": 0.9684,
+        "per_flow_benign_fpr": 0.000425,
+        "per_shape_benign_fpr": 0.000716,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.5245,
+          "DDoS": 0.9888,
+          "DoS GoldenEye": 0.9433,
+          "DoS Hulk": 0.974,
+          "DoS Slowhttptest": 0.9396,
+          "DoS slowloris": 0.9907,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 0.0,
+          "Infiltration": 0.0,
+          "PortScan": 0.5574,
+          "SSH-Patator": 0.9135,
+          "Web Attack \u2013 Brute Force": 0.0694,
+          "Web Attack \u2013 Sql Injection": 0.0,
+          "Web Attack \u2013 XSS": 0.0
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.5,
+        "macro_recall": 0.9807,
+        "weighted_recall": 0.9972,
+        "per_flow_benign_fpr": 0.209462,
+        "per_shape_benign_fpr": 0.017092,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9887,
+          "DDoS": 0.9994,
+          "DoS GoldenEye": 0.9922,
+          "DoS Hulk": 0.9962,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9918,
+          "Web Attack \u2013 Brute Force": 0.9931,
+          "Web Attack \u2013 Sql Injection": 1.0,
+          "Web Attack \u2013 XSS": 0.9922
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.55,
+        "macro_recall": 0.9564,
+        "weighted_recall": 0.9967,
+        "per_flow_benign_fpr": 0.208485,
+        "per_shape_benign_fpr": 0.016382,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9887,
+          "DDoS": 0.9993,
+          "DoS GoldenEye": 0.9908,
+          "DoS Hulk": 0.9955,
+          "DoS Slowhttptest": 0.998,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9918,
+          "Web Attack \u2013 Brute Force": 0.9896,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9922
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.6,
+        "macro_recall": 0.9561,
+        "weighted_recall": 0.9964,
+        "per_flow_benign_fpr": 0.207776,
+        "per_shape_benign_fpr": 0.016027,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9993,
+          "DoS GoldenEye": 0.9908,
+          "DoS Hulk": 0.995,
+          "DoS Slowhttptest": 0.997,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9918,
+          "Web Attack \u2013 Brute Force": 0.9896,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9922
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.65,
+        "macro_recall": 0.9528,
+        "weighted_recall": 0.9949,
+        "per_flow_benign_fpr": 0.197741,
+        "per_shape_benign_fpr": 0.014353,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9849,
+          "DDoS": 0.9991,
+          "DoS GoldenEye": 0.9908,
+          "DoS Hulk": 0.9924,
+          "DoS Slowhttptest": 0.996,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9869,
+          "Web Attack \u2013 Brute Force": 0.9757,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9688
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.7,
+        "macro_recall": 0.952,
+        "weighted_recall": 0.9938,
+        "per_flow_benign_fpr": 0.133167,
+        "per_shape_benign_fpr": 0.013704,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.999,
+          "DoS GoldenEye": 0.9869,
+          "DoS Hulk": 0.9907,
+          "DoS Slowhttptest": 0.996,
+          "DoS slowloris": 0.9977,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9865,
+          "SSH-Patator": 0.9853,
+          "Web Attack \u2013 Brute Force": 0.9757,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9688
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.75,
+        "macro_recall": 0.9505,
+        "weighted_recall": 0.9933,
+        "per_flow_benign_fpr": 0.130785,
+        "per_shape_benign_fpr": 0.013155,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.9989,
+          "DoS GoldenEye": 0.9835,
+          "DoS Hulk": 0.9902,
+          "DoS Slowhttptest": 0.995,
+          "DoS slowloris": 0.9965,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.8,
+          "PortScan": 0.9831,
+          "SSH-Patator": 0.9853,
+          "Web Attack \u2013 Brute Force": 0.9722,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9609
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.8,
+        "macro_recall": 0.9343,
+        "weighted_recall": 0.9924,
+        "per_flow_benign_fpr": 0.130654,
+        "per_shape_benign_fpr": 0.012901,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.9988,
+          "DoS GoldenEye": 0.9821,
+          "DoS Hulk": 0.9889,
+          "DoS Slowhttptest": 0.9921,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.9831,
+          "SSH-Patator": 0.9772,
+          "Web Attack \u2013 Brute Force": 0.9688,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9531
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.85,
+        "macro_recall": 0.9324,
+        "weighted_recall": 0.9909,
+        "per_flow_benign_fpr": 0.130383,
+        "per_shape_benign_fpr": 0.012492,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.9984,
+          "DoS GoldenEye": 0.9661,
+          "DoS Hulk": 0.9875,
+          "DoS Slowhttptest": 0.9891,
+          "DoS slowloris": 0.9954,
+          "FTP-Patator": 0.9934,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.9831,
+          "SSH-Patator": 0.9706,
+          "Web Attack \u2013 Brute Force": 0.9688,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.9531
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.9,
+        "macro_recall": 0.7994,
+        "weighted_recall": 0.9818,
+        "per_flow_benign_fpr": 0.123174,
+        "per_shape_benign_fpr": 0.002691,
+        "meets_fpr_budget": false,
+        "per_class_recall": {
+          "Bot": 0.9811,
+          "DDoS": 0.998,
+          "DoS GoldenEye": 0.9612,
+          "DoS Hulk": 0.982,
+          "DoS Slowhttptest": 0.9891,
+          "DoS slowloris": 0.9942,
+          "FTP-Patator": 0.9912,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.6,
+          "PortScan": 0.9797,
+          "SSH-Patator": 0.9527,
+          "Web Attack \u2013 Brute Force": 0.0799,
+          "Web Attack \u2013 Sql Injection": 0.6667,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      },
+      {
+        "alpha": 0.5,
+        "threshold": 0.95,
+        "macro_recall": 0.7464,
+        "weighted_recall": 0.973,
+        "per_flow_benign_fpr": 0.00148,
+        "per_shape_benign_fpr": 0.001861,
+        "meets_fpr_budget": true,
+        "per_class_recall": {
+          "Bot": 0.9132,
+          "DDoS": 0.9902,
+          "DoS GoldenEye": 0.9574,
+          "DoS Hulk": 0.9733,
+          "DoS Slowhttptest": 0.9851,
+          "DoS slowloris": 0.9919,
+          "FTP-Patator": 0.9879,
+          "Heartbleed": 1.0,
+          "Infiltration": 0.4,
+          "PortScan": 0.9324,
+          "SSH-Patator": 0.9135,
+          "Web Attack \u2013 Brute Force": 0.0556,
+          "Web Attack \u2013 Sql Injection": 0.3333,
+          "Web Attack \u2013 XSS": 0.0156
+        }
+      }
+    ]
+  },
   "splits": {
-    "dedup_stratified": {
-      "note": "Dedup (exact-duplicate feature vectors removed) + stratified. Identical flows cannot span train/test. Treat as REAL.",
-      "test_size": 214673,
-      "test_positives": 65106,
+    "dedup_stratified_test": {
+      "note": "Dedup + stratified, evaluated on the held-out 20% test split at the frontier-chosen operating point. Identical flows cannot span splits; test rows played no part in selection. Treat as REAL.",
+      "alpha": 0.5,
+      "threshold": 0.95,
+      "test_size": 214477,
+      "test_positives": 65105,
       "gbt": {
-        "accuracy": 0.9942,
-        "precision": 0.9954,
-        "recall": 0.9853,
-        "f1": 0.9903,
-        "roc_auc": 0.9995
+        "accuracy": 0.9911,
+        "precision": 0.996,
+        "recall": 0.9744,
+        "f1": 0.9851,
+        "roc_auc": 0.9997
       },
       "cnn": {
-        "accuracy": 0.9541,
-        "precision": 0.9444,
-        "recall": 0.9017,
-        "f1": 0.9226,
-        "roc_auc": 0.991
+        "accuracy": 0.7102,
+        "precision": 0.9476,
+        "recall": 0.0478,
+        "f1": 0.091,
+        "roc_auc": 0.9299
+      },
+      "gbt_benign_fpr": {
+        "per_flow_fpr": 0.001527,
+        "per_shape_fpr": 0.001687,
+        "benign_shapes": 149372,
+        "benign_flows_represented": 304447
+      },
+      "cnn_benign_fpr": {
+        "per_flow_fpr": 0.000565,
+        "per_shape_fpr": 0.001151,
+        "benign_shapes": 149372,
+        "benign_flows_represented": 304447
       },
       "gbt_confusion": {
-        "tn": 149272,
-        "fp": 295,
-        "fn": 956,
-        "tp": 64150
+        "tn": 149120,
+        "fp": 252,
+        "fn": 1667,
+        "tp": 63438
       },
       "cnn_confusion": {
-        "tn": 146112,
-        "fp": 3455,
-        "fn": 6397,
-        "tp": 58709
+        "tn": 149200,
+        "fp": 172,
+        "fn": 61993,
+        "tp": 3112
+      },
+      "gbt_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 149372,
+            "recall": 0.9983
+          },
+          "Bot": {
+            "n": 254,
+            "recall": 0.9252
+          },
+          "DDoS": {
+            "n": 25312,
+            "recall": 0.99
+          },
+          "DoS GoldenEye": {
+            "n": 1960,
+            "recall": 0.9577
+          },
+          "DoS Hulk": {
+            "n": 33427,
+            "recall": 0.9752
+          },
+          "DoS Slowhttptest": {
+            "n": 1044,
+            "recall": 0.978
+          },
+          "DoS slowloris": {
+            "n": 905,
+            "recall": 0.989
+          },
+          "FTP-Patator": {
+            "n": 829,
+            "recall": 0.9952
+          },
+          "Heartbleed": {
+            "n": 2,
+            "recall": 0.5
+          },
+          "Infiltration": {
+            "n": 8,
+            "recall": 0.5
+          },
+          "PortScan": {
+            "n": 337,
+            "recall": 0.9436
+          },
+          "SSH-Patator": {
+            "n": 622,
+            "recall": 0.9293
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 270,
+            "recall": 0.0926
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 3,
+            "recall": 0.3333
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 132,
+            "recall": 0.0076
+          }
+        },
+        "macro_recall": 0.7226,
+        "weighted_recall": 0.9744,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
+      },
+      "cnn_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 149372,
+            "recall": 0.9988
+          },
+          "Bot": {
+            "n": 254,
+            "recall": 0.0
+          },
+          "DDoS": {
+            "n": 25312,
+            "recall": 0.0769
+          },
+          "DoS GoldenEye": {
+            "n": 1960,
+            "recall": 0.0357
+          },
+          "DoS Hulk": {
+            "n": 33427,
+            "recall": 0.0294
+          },
+          "DoS Slowhttptest": {
+            "n": 1044,
+            "recall": 0.0
+          },
+          "DoS slowloris": {
+            "n": 905,
+            "recall": 0.116
+          },
+          "FTP-Patator": {
+            "n": 829,
+            "recall": 0.0
+          },
+          "Heartbleed": {
+            "n": 2,
+            "recall": 0.0
+          },
+          "Infiltration": {
+            "n": 8,
+            "recall": 0.25
+          },
+          "PortScan": {
+            "n": 337,
+            "recall": 0.0208
+          },
+          "SSH-Patator": {
+            "n": 622,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 270,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 3,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 132,
+            "recall": 0.0
+          }
+        },
+        "macro_recall": 0.0378,
+        "weighted_recall": 0.0478,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
       }
     },
     "random_stratified": {
       "note": "Random stratified split. Optimistic upper bound (duplicate flow bursts leak across train/test).",
+      "alpha": 0.5,
+      "threshold": 0.95,
       "test_size": 333933,
       "test_positives": 111311,
       "gbt": {
-        "accuracy": 0.9834,
-        "precision": 0.9725,
-        "recall": 0.9779,
-        "f1": 0.9752,
-        "roc_auc": 0.9986
+        "accuracy": 0.9619,
+        "precision": 0.9958,
+        "recall": 0.8895,
+        "f1": 0.9397,
+        "roc_auc": 0.9979
       },
       "cnn": {
-        "accuracy": 0.9021,
-        "precision": 0.8837,
-        "recall": 0.8132,
-        "f1": 0.847,
-        "roc_auc": 0.9643
+        "accuracy": 0.7215,
+        "precision": 0.9688,
+        "recall": 0.1701,
+        "f1": 0.2893,
+        "roc_auc": 0.8988
+      },
+      "gbt_benign_fpr": {
+        "per_flow_fpr": 2.6e-05,
+        "per_shape_fpr": 0.001855,
+        "benign_shapes": 222622,
+        "benign_flows_represented": 151857637
+      },
+      "cnn_benign_fpr": {
+        "per_flow_fpr": 4e-06,
+        "per_shape_fpr": 0.00274,
+        "benign_shapes": 222622,
+        "benign_flows_represented": 151857637
       },
       "gbt_confusion": {
-        "tn": 219544,
-        "fp": 3078,
-        "fn": 2458,
-        "tp": 108853
+        "tn": 222209,
+        "fp": 413,
+        "fn": 12299,
+        "tp": 99012
       },
       "cnn_confusion": {
-        "tn": 210707,
-        "fp": 11915,
-        "fn": 20790,
-        "tp": 90521
+        "tn": 222012,
+        "fp": 610,
+        "fn": 92382,
+        "tp": 18929
+      },
+      "gbt_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 222622,
+            "recall": 0.9981
+          },
+          "Bot": {
+            "n": 388,
+            "recall": 0.5902
+          },
+          "DDoS": {
+            "n": 25636,
+            "recall": 0.9939
+          },
+          "DoS GoldenEye": {
+            "n": 2004,
+            "recall": 0.9581
+          },
+          "DoS Hulk": {
+            "n": 45950,
+            "recall": 0.7683
+          },
+          "DoS Slowhttptest": {
+            "n": 1065,
+            "recall": 0.9775
+          },
+          "DoS slowloris": {
+            "n": 1097,
+            "recall": 0.9872
+          },
+          "FTP-Patator": {
+            "n": 1636,
+            "recall": 0.9737
+          },
+          "Heartbleed": {
+            "n": 4,
+            "recall": 0.0
+          },
+          "Infiltration": {
+            "n": 6,
+            "recall": 0.0
+          },
+          "PortScan": {
+            "n": 31911,
+            "recall": 0.9949
+          },
+          "SSH-Patator": {
+            "n": 1178,
+            "recall": 0.5042
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 321,
+            "recall": 0.0717
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 5,
+            "recall": 0.2
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 110,
+            "recall": 0.0
+          }
+        },
+        "macro_recall": 0.5728,
+        "weighted_recall": 0.8895,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
+      },
+      "cnn_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 222622,
+            "recall": 0.9973
+          },
+          "Bot": {
+            "n": 388,
+            "recall": 0.0129
+          },
+          "DDoS": {
+            "n": 25636,
+            "recall": 0.1044
+          },
+          "DoS GoldenEye": {
+            "n": 2004,
+            "recall": 0.0963
+          },
+          "DoS Hulk": {
+            "n": 45950,
+            "recall": 0.3395
+          },
+          "DoS Slowhttptest": {
+            "n": 1065,
+            "recall": 0.1803
+          },
+          "DoS slowloris": {
+            "n": 1097,
+            "recall": 0.2279
+          },
+          "FTP-Patator": {
+            "n": 1636,
+            "recall": 0.0
+          },
+          "Heartbleed": {
+            "n": 4,
+            "recall": 1.0
+          },
+          "Infiltration": {
+            "n": 6,
+            "recall": 0.6667
+          },
+          "PortScan": {
+            "n": 31911,
+            "recall": 0.0002
+          },
+          "SSH-Patator": {
+            "n": 1178,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 321,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 5,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 110,
+            "recall": 0.0
+          }
+        },
+        "macro_recall": 0.1877,
+        "weighted_recall": 0.1701,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
       }
     },
     "group_by_source_ip": {
       "note": "Group split by source IP. DEGENERATE: one IP emits 99.6% of attacks, so a held-out IP removes whole campaigns. Documented, not fair.",
+      "alpha": 0.5,
+      "threshold": 0.95,
       "test_size": 738726,
       "test_positives": 554739,
       "gbt": {
         "accuracy": 0.2492,
-        "precision": 0.6046,
-        "recall": 0.0004,
-        "f1": 0.0008,
-        "roc_auc": 0.7017
+        "precision": 0.7253,
+        "recall": 0.0003,
+        "f1": 0.0006,
+        "roc_auc": 0.537
       },
       "cnn": {
         "accuracy": 0.249,
-        "precision": 0.1398,
+        "precision": 0.1304,
         "recall": 0.0,
         "f1": 0.0,
-        "roc_auc": 0.6955
+        "roc_auc": 0.6632
+      },
+      "gbt_benign_fpr": {
+        "per_flow_fpr": 0.0,
+        "per_shape_fpr": 0.000348,
+        "benign_shapes": 183987,
+        "benign_flows_represented": 135422064
+      },
+      "cnn_benign_fpr": {
+        "per_flow_fpr": 0.0,
+        "per_shape_fpr": 0.000109,
+        "benign_shapes": 183987,
+        "benign_flows_represented": 135422064
       },
       "gbt_confusion": {
-        "tn": 183849,
-        "fp": 138,
-        "fn": 554528,
-        "tp": 211
+        "tn": 183923,
+        "fp": 64,
+        "fn": 554570,
+        "tp": 169
       },
       "cnn_confusion": {
-        "tn": 183907,
-        "fp": 80,
-        "fn": 554726,
-        "tp": 13
+        "tn": 183967,
+        "fp": 20,
+        "fn": 554736,
+        "tp": 3
+      },
+      "gbt_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 183987,
+            "recall": 0.9997
+          },
+          "Bot": {
+            "n": 179,
+            "recall": 0.9385
+          },
+          "DDoS": {
+            "n": 128022,
+            "recall": 0.0
+          },
+          "DoS GoldenEye": {
+            "n": 10293,
+            "recall": 0.0
+          },
+          "DoS Hulk": {
+            "n": 230123,
+            "recall": 0.0
+          },
+          "DoS Slowhttptest": {
+            "n": 5499,
+            "recall": 0.0
+          },
+          "DoS slowloris": {
+            "n": 5796,
+            "recall": 0.0
+          },
+          "FTP-Patator": {
+            "n": 7935,
+            "recall": 0.0
+          },
+          "Heartbleed": {
+            "n": 11,
+            "recall": 0.0
+          },
+          "PortScan": {
+            "n": 158804,
+            "recall": 0.0
+          },
+          "SSH-Patator": {
+            "n": 5897,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 1507,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 21,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 652,
+            "recall": 0.0
+          }
+        },
+        "macro_recall": 0.0722,
+        "weighted_recall": 0.0003,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
+      },
+      "cnn_per_class": {
+        "per_class": {
+          "BENIGN": {
+            "n": 183987,
+            "recall": 0.9999
+          },
+          "Bot": {
+            "n": 179,
+            "recall": 0.0168
+          },
+          "DDoS": {
+            "n": 128022,
+            "recall": 0.0
+          },
+          "DoS GoldenEye": {
+            "n": 10293,
+            "recall": 0.0
+          },
+          "DoS Hulk": {
+            "n": 230123,
+            "recall": 0.0
+          },
+          "DoS Slowhttptest": {
+            "n": 5499,
+            "recall": 0.0
+          },
+          "DoS slowloris": {
+            "n": 5796,
+            "recall": 0.0
+          },
+          "FTP-Patator": {
+            "n": 7935,
+            "recall": 0.0
+          },
+          "Heartbleed": {
+            "n": 11,
+            "recall": 0.0
+          },
+          "PortScan": {
+            "n": 158804,
+            "recall": 0.0
+          },
+          "SSH-Patator": {
+            "n": 5897,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Brute Force": {
+            "n": 1507,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 Sql Injection": {
+            "n": 21,
+            "recall": 0.0
+          },
+          "Web Attack \u2013 XSS": {
+            "n": 652,
+            "recall": 0.0
+          }
+        },
+        "macro_recall": 0.0013,
+        "weighted_recall": 0.0,
+        "note": "macro = every attack class counts equally. weighted = by row count, which this dataset lets 3 high-volume classes dominate."
       }
     }
   },
@@ -122,22 +1892,6 @@
       "bwd_bytes": {
         "univariate_auc": 0.5441,
         "stump_auc": 0.6977
-      },
-      "syn_count": {
-        "univariate_auc": 0.5213,
-        "stump_auc": 0.5213
-      },
-      "rst_count": {
-        "univariate_auc": 0.5001,
-        "stump_auc": 0.5001
-      },
-      "fin_count": {
-        "univariate_auc": 0.544,
-        "stump_auc": 0.544
-      },
-      "ack_count": {
-        "univariate_auc": 0.5732,
-        "stump_auc": 0.5732
       }
     },
     "flagged": [],
@@ -145,8 +1899,8 @@
   },
   "dedup_stats": {
     "balanced_rows": 1669665,
-    "unique_rows": 1073362,
-    "duplicate_rate": 0.3571
+    "unique_rows": 1072385,
+    "duplicate_rate": 0.3577
   },
   "counts": {
     "total_rows": 2827677,

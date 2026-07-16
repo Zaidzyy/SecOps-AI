@@ -56,13 +56,24 @@ def test_extract_features_accepts_raw_dict():
     assert feats.shape == (1, len(config.FEATURE_ORDER))
 
 
+def _assert_confidence_coherent(r):
+    """Confidence is the probability of the VERDICT class under an asymmetric
+    threshold (0.95): "suspicious" implies confidence >= threshold, "normal" only
+    that the attack probability stayed below it, i.e. confidence in
+    (1 - threshold, 1.0]. The old 0.5 floor was an artifact of threshold=0.5."""
+    if r["verdict"] == "suspicious":
+        assert config.CLASSIFY_THRESHOLD <= r["confidence"] <= 1.0
+    else:
+        assert (1.0 - config.CLASSIFY_THRESHOLD) < r["confidence"] <= 1.0
+
+
 def test_classify_returns_valid_verdict():
     import cnn_engine
     flow = _synthetic_flow()
     result = cnn_engine.classify_flow(flow)
     assert set(result.keys()) == {"verdict", "confidence"}
     assert result["verdict"] in ("normal", "suspicious")
-    assert 0.5 <= result["confidence"] <= 1.0
+    _assert_confidence_coherent(result)
 
 
 def test_classify_end_to_end_on_two_different_flows():
@@ -83,4 +94,4 @@ def test_classify_end_to_end_on_two_different_flows():
     for flow in (quiet, burst):
         r = cnn_engine.classify(cnn_engine.extract_features(flow))
         assert r["verdict"] in ("normal", "suspicious")
-        assert 0.5 <= r["confidence"] <= 1.0
+        _assert_confidence_coherent(r)

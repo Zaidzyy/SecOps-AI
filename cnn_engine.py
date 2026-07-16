@@ -95,7 +95,13 @@ def _attack_probability(model, features: np.ndarray) -> float:
 def classify(features: np.ndarray) -> dict:
     """Run the primary model on an already-extracted feature row.
     Returns {"verdict": "normal"|"suspicious", "confidence": float}.
-    Confidence is the probability of the *predicted* class (0.5-1.0)."""
+
+    Confidence is the model's probability for the *verdict* class. The decision
+    threshold is asymmetric (config.CLASSIFY_THRESHOLD, 0.95 -- chosen by the
+    training frontier to hold per-flow benign FPR under 1%), so the two verdicts
+    have different confidence floors: "suspicious" implies confidence >= 0.95,
+    while "normal" can carry confidence as low as 1 - threshold. A low-confidence
+    "normal" is a borderline flow the threshold deliberately declined to flag."""
     model, _, _ = load_model()
     attack_prob = _attack_probability(model, features)
     if attack_prob >= config.CLASSIFY_THRESHOLD:

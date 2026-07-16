@@ -31,29 +31,53 @@ capture → flow aggregation (flow_tracker.py) → feature extraction → classi
 order, and scaler were never published** (the upstream `preprocess_data()` is an
 empty placeholder). Feeding our own flow features into it would produce
 confident-looking but meaningless verdicts. Rather than fake it, we **trained our
-own model** on the exact 10 flow features our tracker emits. `SecIDS-CNN.h5` was
+own model** on the exact flow features our tracker emits. `SecIDS-CNN.h5` was
 removed from the inference path entirely and is **not shipped** with this repo;
 the detector loaded at runtime is our own, trained in-repo and stored in `models/`.
 
 **Our model.** Trained on **CIC-IDS-2017** (CICFlowMeter flow features). Two
 models are produced by `train_flow_model.py`:
 
-* **Gradient-boosted trees (primary, shipped for inference).** On 10 low-dimensional
+* **Gradient-boosted trees (primary, shipped for inference).** On low-dimensional
   tabular flow features, trees beat the CNN — as expected.
 * **Compact Conv1D (documented baseline).** Kept for comparison, not used live.
 
-**Held-out metrics (honest evaluation).** CIC-IDS-2017 contains huge bursts of
-near-identical flows, so we report three splits:
+**The operating point is chosen from data, not intuition.** Training sweeps a
+frontier of class-weighting strength (`w ∝ 1/n^α`, α ∈ {0…0.5}) × decision
+threshold (0.5…0.95) and picks the point that **maximises macro attack recall
+subject to a hard budget of per-flow benign FPR ≤ 1%**, selected on a validation
+split and reported on a held-out test split the selection never saw. The chosen
+point is **α = 0.5, threshold = 0.95** (`config.CLASSIFY_THRESHOLD`); the full
+frontier table is in `models/metrics.json`.
+
+**False positives are counted per FLOW, not per shape.** The dedup evaluation
+scores each unique feature vector once, but one common benign shape stands for
+thousands of real flows — a model that misfires on a few common shapes looks
+fine per-shape and is unusable per-flow (we measured a 12× gap on an earlier
+fully class-balanced fit). Every benign FPR quoted here weights each shape by
+its real multiplicity in the dataset.
+
+Held-out test, at the shipped operating point (GBT):
+
+| Metric | Value |
+|---|---|
+| **Per-flow benign FPR** | **0.15%** (budget ≤ 1%) |
+| Macro attack recall (every class counts once) | 0.72 |
+| Weighted attack recall (by row count) | 0.97 |
+| F1 (binary) | 0.985 |
 
 | Split | Meaning | GBT F1 | Conv1D F1 |
 |---|---|---|---|
-| **Dedup + stratified** | **Headline** — identical flows can't span train/test | **0.990** | 0.923 |
-| Random stratified | Optimistic upper bound (duplicate bursts leak) | 0.975 | 0.847 |
+| **Dedup + stratified, held-out test** | **Headline** — identical flows can't span splits | **0.985** | 0.091 |
+| Random stratified | Optimistic upper bound (duplicate bursts leak) | 0.940 | 0.289 |
 | Group by source IP | Degenerate — one IP emits 99.6% of attacks | 0.001 | 0.000 |
 
-The shipped models are exactly the ones trained on the dedup split, so the
-headline numbers describe what's deployed. A per-feature leakage check found no
-single feature exceeding 0.72 AUC. Full numbers: `models/metrics.json`.
+The shipped GBT is exactly the model the frontier measured (trained on the 60%
+train split), so the selection evidence describes the deployed artifact. The
+Conv1D baseline is evaluated at the GBT's operating point, which it was not
+tuned for — its collapse at threshold 0.95 is part of why the GBT ships. A
+per-feature leakage check found no single feature exceeding 0.72 AUC. Full
+numbers, per-class recall, and the frontier: `models/metrics.json`.
 
 **Retrain / reproduce:**
 ```bash
@@ -68,23 +92,45 @@ python app_groq.py --replay samples/heartbleed-excerpt.pcap
 `replay_pcap()` reuses `_ingest_packet_flows` + `_handle_completed_flow`, so
 replayed verdicts are persisted and emitted identically to live traffic.
 
-**Feature alignment was validated against a real pcap.** Replaying real traffic
-surfaced a genuine semantic bug: CIC-IDS-2017's CICFlowMeter flag columns are
-**binary presence indicators (0/1)**, not packet counts (verified: every flag
-column has `max == 1`). A real TCP flow carries many ACKs, so emitting the true
-count put those features wildly out of the training distribution and classified
-everything as normal. `flow_tracker` now emits binary flag **presence**, after
-which **all 10 features land 100% within the training min/max** on replayed
-traffic. `tests/test_feature_alignment.py` further proves the live serving
-pipeline reproduces the offline model's probability to <1e-4.
+`samples/dos-volumetric.pcap` is the in-scope proof capture: real CIC-IDS-2017
+volumetric-attack flow shapes (DDoS, the four DoS variants, PortScan)
+reconstructed into packets, plus benign flows. Replaying it fires suspicious on
+the attack flows at each class's measured recall and keeps every benign flow
+quiet. Regenerate with `scripts/make_dos_pcap.py`.
 
-**Honesty note on features.** All 10 features (duration, protocol, per-direction
-packet/byte counts, TCP flag presence) are measured directly from packet headers
-and map to real CICFlowMeter columns — no fabricated time-windowed host/service
-rate features. Note the model does **not** reliably detect attack classes that
-were rare in training (e.g. Heartbleed, 11 of 2.8M rows); those replay in-range
-but score as normal. This is a training-coverage limit, stated plainly, not a
-pipeline defect.
+**The TCP flag features were removed — they never transferred.** Making the flag
+features match CIC-IDS-2017's encoding (binary presence, not counts) was an earlier
+fix that got them *in distribution* but not *correct*: CIC-IDS-2017 records
+PortScan flows with `syn=rst=ack=0`, while a real port scan on the wire obviously
+sets SYN. The model had learned "PortScan means the flags are zero" — true of the
+dataset, false of the network — so it scored ~1.00 on dataset PortScan rows and
+never fired on live scan traffic. A feature whose meaning differs between training
+and serving is worse than no feature. The detector now uses only the **6 features
+whose train/serve semantics are identical** (duration, protocol, per-direction
+packet and byte counts). `flow_tracker` still tracks flags for TCP-teardown
+detection; they are no longer model input.
+
+**Serving fidelity is verified, not assumed.** `tests/test_feature_alignment.py`
+runs a committed 452-row CIC-IDS-2017 fixture through the live path
+(`flow_tracker → cnn_engine`) and asserts the live verdict matches the offline
+model's own prediction on every row (0 disagreements), and reproduces its
+probability to <1e-4. It runs on a fresh clone with no dataset download.
+
+**Scope — what this detector actually detects.** All 6 features are measured
+directly from packet headers and map to real CICFlowMeter columns — no fabricated
+time-windowed host/service rate features. They describe a flow's *volume and
+shape*, so they can only separate attacks that **look different volumetrically**:
+DoS/DDoS floods and connection-rate brute force. They cannot distinguish a
+malicious HTTP request from a benign one, because in packet/byte terms it is a
+normal HTTP request — content-based classes (Web Attack XSS / SQL Injection /
+Brute Force, Infiltration, Bot) would need payload or URI features this pipeline
+does not extract. The frontier sweep confirmed this is not a tuning problem: at
+**every** class-weighting strength that respects the FPR budget, the Web Attack
+classes stay near zero recall. The scope is therefore locked — volumetric
+DoS/DDoS and rate-based detection, no content-based detection claimed at any
+weighting. Per-class recall at the shipped operating point is in
+`models/metrics.json`; **coverage claims must come from that table, not from the
+headline F1.**
 
 ---
 

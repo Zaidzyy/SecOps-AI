@@ -71,32 +71,34 @@ def _prepare_rows():
 
 
 def _reconstructable(raw):
+    """Can this row be turned back into a packet sequence flow_tracker would
+    aggregate into exactly this row? (Bytes need packets to carry them.)"""
     d = dict(zip(config.FEATURE_ORDER, raw))
     fp, bp = int(round(d["fwd_packets"])), int(round(d["bwd_packets"]))
-    total = fp + bp
-    if total == 0:
+    if fp + bp == 0:
         return False
     if d["fwd_bytes"] > 0 and fp == 0:
         return False
     if d["bwd_bytes"] > 0 and bp == 0:
         return False
-    for f in ("syn_count", "rst_count", "fin_count", "ack_count"):
-        if int(round(d[f])) > total:
-            return False
     return True
 
 
 def _build_packets(raw):
     """Reconstruct a packet sequence that reproduces `raw` under flow_tracker's
-    semantics. Closing flags (RST/FIN) are placed on the final packets so the
-    flow closes only at the end (never splitting into two flows)."""
+    semantics.
+
+    No TCP flags are set on the reconstructed packets, and none are needed: the
+    flag features were dropped from the contract for not transferring (see
+    config.FEATURE_ORDER), so nothing the model sees depends on them. That also
+    means the flow cannot close via FIN/RST -- _run_flow ends it with flush()
+    instead, which is exactly how a real capture's trailing flows are emitted.
+    """
     d = {k: raw[i] for i, k in enumerate(config.FEATURE_ORDER)}
     dur = float(d["duration_s"])
     proto = int(round(d["protocol"]))
     fp, bp = int(round(d["fwd_packets"])), int(round(d["bwd_packets"]))
     fb, bb = int(round(d["fwd_bytes"])), int(round(d["bwd_bytes"]))
-    syn, rst = int(round(d["syn_count"])), int(round(d["rst_count"]))
-    fin, ack = int(round(d["fin_count"])), int(round(d["ack_count"]))
     total = fp + bp
 
     # directions in time order: fwd packets, then bwd packets
@@ -106,16 +108,6 @@ def _build_packets(raw):
         bytes_[0] = fb
     if bp:
         bytes_[fp] = bb
-
-    flags = [dict(syn=False, rst=False, fin=False, ack=False) for _ in range(total)]
-    for i in range(syn):            # SYN on first packets
-        flags[i]["syn"] = True
-    for i in range(ack):            # ACK on first packets
-        flags[i]["ack"] = True
-    for i in range(fin):            # FIN on LAST packets (close only at end)
-        flags[total - 1 - i]["fin"] = True
-    for i in range(rst):            # RST on LAST packets
-        flags[total - 1 - i]["rst"] = True
 
     sip, dip, sport, dport = "10.0.0.9", "10.0.0.1", 44444, 80
     packets = []
@@ -127,7 +119,7 @@ def _build_packets(raw):
             s_ip, d_ip, sp, dp = dip, sip, dport, sport
         packets.append(PacketMeta(ts=ts, src_ip=s_ip, dst_ip=d_ip,
                                   src_port=sp, dst_port=dp, proto=proto,
-                                  payload_len=bytes_[i], **flags[i]))
+                                  payload_len=bytes_[i]))
     return packets
 
 
@@ -212,12 +204,13 @@ def test_live_path_agrees_with_the_offline_model_on_every_row():
 # per class). These are not targets and not aspirations -- they are what the
 # shipped model actually does today, pinned so a change shows up as a diff.
 #
-# Read them next to models/metrics.json's headline 0.985 recall. Both are true:
-# that number is weighted by the real class distribution, where DoS Hulk +
-# PortScan + DDoS are ~95% of all attack rows and the model scores them ~1.00.
-# The classes it is blind to are rare enough to barely move the average. Weight
-# every class equally and recall is 0.648. The blind spots below are real,
-# unresolved, and a product decision rather than a bug: see the checkpoint report.
+# Measured at the frontier-chosen operating point (alpha=0.5 class weighting,
+# threshold=0.95 -- see models/metrics.json "operating_point"), which was picked
+# to maximise macro recall under a hard per-flow benign FPR budget of 1%. The
+# product's LOCKED SCOPE is volumetric DoS/DDoS and rate-based attacks; the
+# content-based classes below (Web Attack *, Bot, Infiltration) are OUT of scope
+# -- their nonzero recalls are incidental, claimed nowhere, and pinned here only
+# so a silent change is still a visible diff.
 #
 # NOTE on the Web Attack keys: the dataset spells them with an EN DASH (U+2013),
 # and this file is UTF-8, so they are written literally below. Do not retype them
@@ -225,25 +218,27 @@ def test_live_path_agrees_with_the_offline_model_on_every_row():
 # and keys pasted from what the terminal showed silently match nothing.
 BASELINE_RECALL = {
     "Web Attack – XSS": 0.00,
-    "Web Attack – Brute Force": 0.04,
-    "Web Attack – Sql Injection": 0.28,
-    "Bot": 0.32,
-    "Infiltration": 0.40,
-    "SSH-Patator": 0.56,
-    "Heartbleed": 0.63,
+    "Web Attack – Brute Force": 0.00,
+    "Web Attack – Sql Injection": 0.38,
+    "Bot": 0.52,
+    "SSH-Patator": 0.52,
+    "Infiltration": 0.68,
+    "Heartbleed": 0.72,
     "DoS Hulk": 0.76,
+    "DoS GoldenEye": 0.92,
     "PortScan": 1.00,
     "DDoS": 1.00,
     "FTP-Patator": 1.00,
     "DoS Slowhttptest": 1.00,
     "DoS slowloris": 1.00,
-    "DoS GoldenEye": 1.00,
 }
 
 # The classes the detector can be trusted on today. A regression here is a real
-# regression: these are the attacks it is actually shipped to catch.
+# regression: these are the attacks it is actually shipped to catch. DoS
+# GoldenEye is volumetric and in scope, but sits at 0.92 on this fixture at the
+# chosen threshold, so it is pinned in BASELINE_RECALL rather than held to 1.0.
 RELIABLE_CLASSES = ["PortScan", "DDoS", "FTP-Patator", "DoS Slowhttptest",
-                    "DoS slowloris", "DoS GoldenEye"]
+                    "DoS slowloris"]
 
 
 @pytest.mark.skipif(bool(PARQUET), reason="baseline is measured on the fixture")
@@ -272,6 +267,18 @@ def test_per_class_attack_recall_has_not_regressed():
 
     for k in RELIABLE_CLASSES:
         assert recalls[k] == 1.0, f"{k} is a class we rely on; recall fell to {recalls[k]}"
+
+
+def test_serving_threshold_matches_trained_operating_point():
+    """config.CLASSIFY_THRESHOLD is half of the trained operating point (the
+    other half, alpha, is baked into the model weights). If the two drift, every
+    number in models/metrics.json describes a detector we are not running."""
+    import json
+    with open(config.FLOW_META_PATH, encoding="utf-8") as f:
+        meta = json.load(f)
+    assert config.CLASSIFY_THRESHOLD == meta["threshold"], (
+        f"config.CLASSIFY_THRESHOLD={config.CLASSIFY_THRESHOLD} but the shipped "
+        f"model was tuned for {meta['threshold']} -- retrain or fix config")
 
 
 @pytest.mark.skipif(bool(PARQUET), reason="baseline is measured on the fixture")

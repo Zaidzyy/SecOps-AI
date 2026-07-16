@@ -30,7 +30,15 @@ FLOW_SCALER_PATH = os.path.join(MODEL_DIR, "secids_flow_scaler.joblib")
 FLOW_META_PATH = os.path.join(MODEL_DIR, "secids_flow_meta.json")
 
 # Probability of "attack" above this is flagged "suspicious".
-CLASSIFY_THRESHOLD = 0.5
+#
+# 0.95 is not a hunch -- it is the operating point chosen by the frontier sweep
+# in train_flow_model.py (alpha=0.5 class weighting x threshold grid, selected on
+# a validation split): it maximises macro attack recall subject to a HARD budget
+# of per-flow benign FPR <= 1%. The high threshold is what buys back the false
+# positives that alpha=0.5's rare-class emphasis would otherwise spray on common
+# benign shapes. Must stay equal to models/secids_flow_meta.json's "threshold";
+# retrain rather than hand-tune (a new sweep re-derives it from data).
+CLASSIFY_THRESHOLD = 0.95
 
 # --- Flow aggregation ---
 # A flow is emitted for classification when it is idle for this long (no new
@@ -44,10 +52,22 @@ FLOW_ACTIVE_TIMEOUT_S = 120.0
 # published theirs). flow_tracker emits these names; cnn_engine consumes them
 # in exactly this order; the trainer aligns CIC-IDS-2017 columns to them.
 #
-# NOTE on the flag features: despite the "_count" names (inherited from
-# CICFlowMeter's column titles) these are BINARY PRESENCE indicators, 0.0 or 1.0
-# -- that is how CIC-IDS-2017 defines them and how the model was trained. See
-# flow_tracker.Flow.to_features().
+# ONLY features whose train-time and serve-time semantics are identical belong
+# here. Every one below means the same thing in a CIC-IDS-2017 row as it does in a
+# flow flow_tracker built from live packets: a count of packets is a count of
+# packets, a byte total is a byte total.
+#
+# The four TCP flag features (syn/rst/fin/ack) were REMOVED for failing exactly
+# that test. CIC-IDS-2017's PortScan rows carry syn=rst=ack=0, while a real port
+# scan observed on the wire obviously sets SYN. The model duly learned "PortScan
+# means flags are zero" -- true of the dataset, false of the network. It scored
+# 1.00 on dataset PortScan rows and never fired on real scan traffic. A feature
+# that means different things in training and in production is worse than no
+# feature: it teaches the model a rule that cannot hold at serving time. See
+# models/metrics.json for what dropping them cost per attack class.
+#
+# flow_tracker still TRACKS the flags -- TCP teardown detection needs them -- it
+# just no longer feeds them to the model.
 FEATURE_ORDER = [
     "duration_s",    # flow wall-clock duration in seconds
     "protocol",      # IP protocol number (6=TCP, 17=UDP, other=proto no.)
@@ -55,10 +75,6 @@ FEATURE_ORDER = [
     "bwd_packets",   # packets responder -> initiator
     "fwd_bytes",     # payload bytes initiator -> responder
     "bwd_bytes",     # payload bytes responder -> initiator
-    "syn_count",     # 1.0 if any packet in the flow had SYN set, else 0.0
-    "rst_count",     # 1.0 if any packet in the flow had RST set, else 0.0
-    "fin_count",     # 1.0 if any packet in the flow had FIN set, else 0.0
-    "ack_count",     # 1.0 if any packet in the flow had ACK set, else 0.0
 ]
 
 # --- Ingestion pipeline (Phase 2) ---

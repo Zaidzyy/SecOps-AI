@@ -6,12 +6,17 @@
     "fwd_packets",
     "bwd_packets",
     "fwd_bytes",
-    "bwd_bytes",
-    "syn_count",
-    "rst_count",
-    "fin_count",
-    "ack_count"
+    "bwd_bytes"
   ],
+  "dropped_features": {
+    "features": [
+      "syn_count",
+      "rst_count",
+      "fin_count",
+      "ack_count"
+    ],
+    "reason": "Non-transferable. CIC-IDS-2017 PortScan rows carry all TCP flags zero, but a real port scan sets SYN, so the model learned a dataset artifact that cannot hold at serving time: 1.00 recall on dataset PortScan rows, zero detections on live scan traffic. Removed 2026-07-16."
+  },
   "protocol_encoding": {
     "tcp": 6,
     "udp": 17,
@@ -22,11 +27,18 @@
     "0": "normal",
     "1": "suspicious"
   },
-  "threshold": 0.5,
+  "threshold": 0.95,
+  "threshold_note": "Chosen by the validation frontier sweep; config.CLASSIFY_THRESHOLD must be kept equal to this value or serving no longer matches the metrics.",
   "input_shape": [
-    10,
+    6,
     1
   ],
+  "class_weighting": "w ~ 1/n^alpha per class (benign is a class), alpha=0.5. alpha and threshold were chosen by maximising validation macro recall subject to per-flow benign FPR <= 0.01; see metrics.json operating_point/frontier.",
+  "operating_point": {
+    "alpha": 0.5,
+    "threshold": 0.95,
+    "selection": "Maximises validation macro recall (0.7464) subject to per-flow benign FPR <= 0.01 (achieved 0.00148)."
+  },
   "dataset": "CIC-IDS-2017 (rdpahalavan/CIC-IDS2017, Network-Flows parquet)",
   "shipped_models": {
     "gbt": "secids_flow_gbt.joblib",
@@ -35,13 +47,13 @@
   "shipped_from_split": "dedup_stratified",
   "dedup_stats": {
     "balanced_rows": 1669665,
-    "unique_rows": 1073362,
-    "duplicate_rate": 0.3571
+    "unique_rows": 1072385,
+    "duplicate_rate": 0.3577
   },
   "counts": {
     "total_rows": 2827677,
     "attack_rows": 556555,
     "benign_rows_used": 1113110
   },
-  "trained_at": "2026-07-15T08:39:30.051459+00:00"
+  "trained_at": "2026-07-16T10:42:19.904566+00:00"
 }

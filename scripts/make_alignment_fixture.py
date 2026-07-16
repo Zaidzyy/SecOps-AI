@@ -49,21 +49,17 @@ SEED = 42
 def reconstructable(row) -> bool:
     """Mirrors tests/test_feature_alignment.py::_reconstructable.
 
-    A flow the test cannot rebuild into a packet sequence (more flag-presences
-    than packets, bytes with no packets to carry them) is not a fixture row worth
-    keeping -- the test would only skip over it.
+    A flow the test cannot rebuild into a packet sequence (bytes with no packets
+    to carry them) is not a fixture row worth keeping -- the test would only skip
+    over it.
     """
     fp, bp = int(round(row["fwd_packets"])), int(round(row["bwd_packets"]))
-    total = fp + bp
-    if total == 0:
+    if fp + bp == 0:
         return False
     if row["fwd_bytes"] > 0 and fp == 0:
         return False
     if row["bwd_bytes"] > 0 and bp == 0:
         return False
-    for f in ("syn_count", "rst_count", "fin_count", "ack_count"):
-        if int(round(row[f])) > total:
-            return False
     return True
 
 
@@ -77,8 +73,7 @@ def main():
 
     # Filter on renamed copies, but keep and emit the ORIGINAL rows.
     probe = df.rename(columns=COLUMN_MAP)
-    for c in ("fwd_packets", "bwd_packets", "fwd_bytes", "bwd_bytes",
-              "syn_count", "rst_count", "fin_count", "ack_count"):
+    for c in ("fwd_packets", "bwd_packets", "fwd_bytes", "bwd_bytes"):
         probe[c] = pd.to_numeric(probe[c], errors="coerce").fillna(0.0)
     keep = probe.apply(reconstructable, axis=1)
     df = df[keep.to_numpy()]

@@ -75,7 +75,17 @@ class Flow:
 
     def to_features(self) -> dict:
         """Raw (unscaled) feature dict keyed by config.FEATURE_ORDER names.
-        cnn_engine applies the saved scaler + ordering on top of this."""
+        cnn_engine applies the saved scaler + ordering on top of this.
+
+        The TCP flag counters are deliberately NOT here. They stay on the Flow --
+        `closed`/teardown detection below depends on them, and they are useful in
+        a summary -- but they are not model input. CIC-IDS-2017 labels PortScan
+        rows with all flags zero, which is not what a real scan looks like on the
+        wire, so a model trained on them learns a rule that cannot survive contact
+        with live traffic. Feeding a feature whose meaning differs between the
+        training set and the sensor is how a detector scores 1.00 offline and
+        catches nothing in production. See config.FEATURE_ORDER.
+        """
         return {
             "duration_s": self.duration_s,
             "protocol": float(self.proto),
@@ -83,18 +93,6 @@ class Flow:
             "bwd_packets": float(self.bwd_packets),
             "fwd_bytes": float(self.fwd_bytes),
             "bwd_bytes": float(self.bwd_bytes),
-            # IMPORTANT: CIC-IDS-2017's CICFlowMeter flag columns are BINARY
-            # presence indicators (0/1), NOT occurrence counts -- verified: every
-            # flag column has max==1 across all 2.8M rows. A real bidirectional
-            # TCP flow carries many ACKs (and a SYN + SYN-ACK), so emitting the
-            # true packet count here (e.g. ack=16-32) would be far out of the
-            # training distribution and wreck classification. We therefore emit
-            # PRESENCE to match the training feature definition. The raw counts
-            # are still tracked on the Flow for TCP-close logic and display.
-            "syn_count": 1.0 if self.syn_count else 0.0,
-            "rst_count": 1.0 if self.rst_count else 0.0,
-            "fin_count": 1.0 if self.fin_count else 0.0,
-            "ack_count": 1.0 if self.ack_count else 0.0,
         }
 
     def key_tuple(self) -> tuple:
