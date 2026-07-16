@@ -644,13 +644,30 @@ function renderReply(text) {
     return span;
 }
 
+/* Citation chips under an AI reply: the detections the answer was grounded
+   in (BM25-retrieved rows, filtered server-side against what was actually
+   retrieved). Text nodes only — these fields come from the DB and the LLM. */
+function renderCitations(citations) {
+    const wrap = el("div", "chat-citations");
+    wrap.appendChild(el("span", "chat-cite-label", "cited:"));
+    for (const c of citations) {
+        const chip = el("span", "chat-cite",
+            `#${c.id}${c.technique_id ? " " + c.technique_id : ""}` +
+            `${c.src_ip ? " " + c.src_ip : ""}`);
+        chip.title = [c.technique_name, cleanGeo(c.country), c.timestamp]
+            .filter(Boolean).join(" · ");
+        wrap.appendChild(chip);
+    }
+    return wrap;
+}
+
 async function sendChat() {
     const input = $("chat-input");
     const message = input.value.trim();
     if (!message) return;
     input.value = "";
     chatAppend(el("div", "chat-msg chat-msg-user", message));
-    const loading = el("div", "chat-loading", "analyzing…");
+    const loading = el("div", "chat-loading", "retrieving incidents…");
     chatAppend(loading);
     try {
         const res = await fetch("/chat", {
@@ -660,7 +677,16 @@ async function sendChat() {
         });
         const data = await res.json();
         loading.remove();
+        if (!res.ok) {
+            const reason = data.reason ? ` — ${data.reason}` : "";
+            chatAppend(el("div", "chat-msg chat-msg-err",
+                (data.error || "chat failed") + reason));
+            return;
+        }
         chatAppend(renderReply(data.response || data.message || "No response received."));
+        if (Array.isArray(data.citations) && data.citations.length) {
+            chatAppend(renderCitations(data.citations));
+        }
     } catch (e) {
         loading.remove();
         chatAppend(el("div", "chat-msg chat-msg-err",

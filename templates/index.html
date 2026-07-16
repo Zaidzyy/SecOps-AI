@@ -132,15 +132,15 @@
 
     <section class="panel panel-chat" aria-label="Triage assistant">
         <header class="panel-head">
-            <h2>Triage assistant</h2>
-            <span class="panel-meta">LLM summary of what the sensor sees</span>
+            <h2>Operator chat</h2>
+            <span class="panel-meta">BM25 retrieval over incident history &middot; advisory</span>
         </header>
         <div class="chat" id="chat-box">
-            <div class="chat-hint">Ask about current traffic, a source IP, or a verdict.</div>
+            <div class="chat-hint">Ask about incident history &mdash; an IP, a technique, a country. Answers cite the retrieved detections.</div>
         </div>
         <div class="chat-input-row">
-            <input type="text" id="chat-input" placeholder="Ask the triage assistant&hellip;"
-                   autocomplete="off" aria-label="Message the triage assistant">
+            <input type="text" id="chat-input" placeholder="Ask about incident history&hellip;"
+                   autocomplete="off" aria-label="Message the operator chat">
             <button class="btn btn-accent" id="chat-send">Send</button>
         </div>
     </section>

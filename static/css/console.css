@@ -475,6 +475,24 @@ button { font: inherit; cursor: pointer; }
     font-family: var(--font-mono); font-size: 10px; color: var(--ink3);
 }
 
+/* --- chat citations (Feature 3: BM25-retrieved detections) --- */
+
+.chat-citations {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin: 2px 0 6px; padding-left: 8px;
+}
+
+.chat-cite-label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink3);
+}
+
+.chat-cite {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg2); color: var(--accent);
+    cursor: default;
+}
+
 .pager {
     display: flex; align-items: center; justify-content: space-between;
     padding: 8px 16px;

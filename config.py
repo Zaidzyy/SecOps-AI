@@ -190,6 +190,17 @@ TRIAGE_TOOL_ROW_LIMIT = 10
 
 TRIAGE_HTTP_TIMEOUT_S = 30.0
 
+# --- RAG chat: BM25 retrieval over incident history (Feature 3) ---
+# Lexical (BM25) retrieval, in-process, zero new dependencies -- see rag.py
+# for why that is the right mechanism for this corpus and what keeps the
+# container image unchanged. Top-k is small on purpose: retrieved incidents
+# are spliced into the LLM prompt, so every row costs tokens.
+RAG_TOP_K = 6
+
+# Same model tier as triage, and for the same reason: the answer must be
+# strict JSON with a citations array, which the 8b model fumbles.
+RAG_CHAT_MODEL = os.getenv("SECOPS_CHAT_MODEL", "llama-3.3-70b-versatile")
+
 # --- Read API (Phase 3) ---
 # Paged so a client can never ask the DB for an unbounded result set.
 API_PAGE_SIZE_DEFAULT = 50

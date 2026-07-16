@@ -15,7 +15,7 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 * **Flow-based ML threat detection:** Sniffed packets are aggregated into bidirectional flows (`flow_tracker.py`) and scored by a classifier we trained ourselves on CIC-IDS-2017 flow features (`cnn_engine.py`). See **Threat Detection Engine** below for the model, its held-out metrics, and why the borrowed `SecIDS-CNN.h5` is not used for inference.
 * **Asynchronous Ingestion Engine:** Designed around an agile, event-driven web framework (Flask-SocketIO/FastAPI architecture) optimized for real-time, bi-directional telemetry streaming, live log parsing, and concurrent system metric tracking (CPU, RAM, GPU states).
 * **Groq API Telemetry Acceleration:** Integrated directly with the Groq API to run lightning-fast hardware-accelerated LLM inference. It instantly transforms raw, cryptic, or high-volume log payloads into concise, structured, human-readable contextual threat summaries.
-* **SOC Console:** A self-contained operator dashboard (hand-written CSS, vendored Chart.js/Socket.IO, bundled world GeoJSON — no CDN, no tile server, renders offline): live threat map, verdict-badged detection feed, pipeline counters, and an LLM triage chat. See **SOC Console** below.
+* **SOC Console:** A self-contained operator dashboard (hand-written CSS, vendored Chart.js/Socket.IO, bundled world GeoJSON — no CDN, no tile server, renders offline): live threat map, verdict-badged detection feed, pipeline counters, on-demand AI triage on flagged flows, and an operator chat grounded in BM25 retrieval over incident history. See **SOC Console** below.
 
 ---
 
@@ -195,7 +195,8 @@ captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
 flagged flows, confidence, a suspicious-only filter, new detections ping the
 map over WebSocket) → traffic rate, top origins, and host health charts → the
 ATT&CK coverage panel (which techniques have fired, with the unattributed
-count shown beside them), the LLM triage chat, and the event log.
+count shown beside them), the operator chat (grounded in BM25 retrieval over
+incident history — see below), and the event log.
 
 The page is **self-contained by test, not by promise**: no CDN framework, no
 external tile server. Chart.js and the Socket.IO client are vendored under
@@ -203,6 +204,36 @@ external tile server. Chart.js and the Socket.IO client are vendored under
 equirectangular projection — a fresh clone renders the full console offline.
 `tests/test_api.py` pins that every `src`/`href` served by `/` is local. More
 captures in `docs/screenshots/`.
+
+### Operator chat — RAG with BM25 retrieval over incident history
+
+The chat answers from **retrieved incidents, not the model's memory**. Each
+question is scored against the entire detections table with **BM25 lexical
+retrieval** — in-process, zero new dependencies, index rebuilt from SQLite in
+milliseconds and delta-synced before every answer. It is deliberately *not*
+vector/embedding search: this corpus is IPs, ports, T-numbers and country
+names, where exact-term matching wins (a question about `131.203.88.83` must
+match that literal token), and an embedding stack would bloat the 637MB
+container. The retriever sits behind a one-method interface so an embedding
+backend could slot in later if the corpus grows prose.
+
+Grounding is enforced in code, same discipline as the triage agent: the top-k
+retrieved incidents are the model's only source of facts about this network,
+its citations are filtered against the ids actually retrieved, and an empty
+retrieval is stated in the answer rather than papered over. Replies carry
+citation chips (detection id, technique, source IP) and an advisory label.
+Degradation: retrieval failure falls back to the old recent-logs context,
+plainly labelled; Groq absent/unreachable is a clean "chat unavailable", never
+a crash.
+
+### AI triage — bounded agent on demand
+
+Suspicious feed rows carry a **triage** action: a hard-bounded Groq tool-use
+loop (max 5 tool calls, then forced synthesis) over real local tools only —
+IP reputation, related flows, prior detections, and the curated ATT&CK
+playbooks. Evidence citing a tool that never executed is dropped in code; the
+report is cached on the detection so re-opening never re-bills the LLM, and
+it is labelled AI-generated advisory throughout.
 
 ---
 

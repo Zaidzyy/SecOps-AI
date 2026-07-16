@@ -27,6 +27,7 @@ import cnn_engine
 import enrichment
 import migrations
 import pipeline
+import rag
 import storage
 import triage
 
@@ -217,6 +218,17 @@ def initialize_database():
 
 
 initialize_database()
+
+# Feature 3: index the existing incident history for the RAG chat at startup.
+# Deltas afterwards -- /chat re-syncs before every retrieval, so new detections
+# become searchable the moment an operator asks about them. Guarded: an index
+# failure must never stop the console from booting (chat just retries).
+try:
+    with get_db_connection() as _conn:
+        _indexed = rag.index.sync(_conn)
+    print(f"[OK] SecOps-AI: BM25 incident index ready ({_indexed} detections indexed).")
+except Exception as e:
+    print(f"[WARN] BM25 incident index startup sync failed (chat will retry): {e}")
 
 
 # Geolocation moved to enrichment.get_ip_country(), which is TTL-cached. The old
@@ -764,46 +776,48 @@ def initialize_groq_client():
 
 @app.route('/chat', methods=['POST'])
 def chat_with_groq():
-    data = request.get_json()
-    user_message = data.get('message', '')
+    """Operator chat, now retrieval-grounded (Feature 3).
 
-    cpu = psutil.cpu_percent(interval=1)
-    memory = psutil.virtual_memory().percent
-    disk = psutil.disk_usage('/').percent
+    The old version pasted the last 5 log lines into the prompt regardless of
+    the question. Now the question is scored against the WHOLE incident
+    history (BM25, in-process -- see rag.py) and the top-k relevant detections
+    are what Groq answers from, with citations filtered against the retrieved
+    ids in code. The index delta-syncs here, so the answer sees every
+    detection written up to the moment of the question.
 
-    # Apply array slices to drop token payload usage under Groq limit gates
-    logs = fetch_recent_logs()[:5]
-    network_data = fetch_recent_network_data()[:5]
+    Degradation, never a crash: retrieval failure falls back to the legacy
+    last-N-logs context (plainly labelled); Groq failure is a clean 503.
+    """
+    data = request.get_json(silent=True) or {}
+    user_message = (data.get('message') or '').strip()
+    if not user_message:
+        return jsonify({"error": "empty message"}), 400
 
-    context_message = (
-        f"Operator Query: {user_message}\n"
-        f"Live Environment Metrics: System CPU Load: {cpu}%, RAM Space: {memory}%, Hard Disk Surface: {disk}%.\n"
-        f"Forensic Logs Table Block: {logs}, Packet Telemetry Requests: {network_data}\n"
-        f"Address the operator query briefly and decisively in professional English."
-    )
-
-    payload = {
-        "model": "llama-3.1-8b-instant",  
-        "messages": [{"role": "user", "content": context_message}]
-    }
+    hits = None
+    try:
+        with get_db_connection() as conn:
+            rag.index.sync(conn)
+            hits = rag.index.retrieve(user_message, config.RAG_TOP_K)
+    except Exception as e:
+        print(f"[WARN] BM25 retrieval unavailable (falling back to recent logs): {e}")
 
     try:
-        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=GROQ_HEADERS, json=payload)
-        response_data = response.json()
-        
-        # 🚨 THE FIX: Force the terminal to scream if Groq rejects the key or rate-limits you!
-        if response.status_code != 200:
-            print(f"\n❌ GROQ API REJECTED THE REQUEST (Code {response.status_code}): {response_data}\n")
-            assistant_message = f"Cloud API Connection Error: {response_data.get('error', {}).get('message', 'Unknown Error')}"
+        if hits is None:
+            result = rag.answer_without_retrieval(user_message,
+                                                  fetch_recent_logs()[:5])
         else:
-            assistant_message = response_data.get("choices", [{}])[0].get("message", {}).get("content", "No advisory response generated.")
-            
-    except requests.RequestException as e:
-        print("❌ Error querying remote hardware-accelerated Groq model platform:", e)
-        assistant_message = f"Inference engine failure update: {e}"
+            result = rag.answer_question(user_message, hits)
+    except triage.TriageUnavailable as e:
+        return jsonify({"error": "chat unavailable", "reason": str(e)}), 503
 
-    save_log(f"Operator: {user_message}, SecOps-AI: {assistant_message}")
-    return jsonify({"response": assistant_message})
+    save_log(f"Operator: {user_message}, SecOps-AI: {result['answer']}")
+    return jsonify({
+        "response": result["answer"],
+        "citations": result["citations"],
+        "retrieved": result["retrieved"],
+        "retrieval": result["retrieval"],
+        "label": result["label"],
+    })
 
 
 
