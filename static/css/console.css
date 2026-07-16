@@ -79,6 +79,16 @@ button { font: inherit; cursor: pointer; }
     border: 1px solid var(--line); color: var(--ink2); background: var(--bg1);
 }
 
+.logout-form { display: inline-flex; margin: 0; }
+
+.logout-btn {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); color: var(--ink2); background: transparent;
+}
+
+.logout-btn:hover { color: var(--ink1, #dbe4f3); border-color: var(--ink3, #6b7f9e); }
+
 .livedot { position: relative; width: 10px; height: 10px; }
 
 .livedot-core {

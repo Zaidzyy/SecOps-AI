@@ -77,6 +77,19 @@ CREATE_LOGS = """
     );
 """
 
+# Operator accounts (Phase 4a). Only a hash is ever stored -- werkzeug's
+# generate_password_hash, salted per-user. The legacy db_create.py made a
+# looser version of this table; IF NOT EXISTS keeps both paths compatible, and
+# the auth code only relies on the columns the old shape also had.
+CREATE_USERS = """
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+"""
+
 CREATE_METRICS = """
     CREATE TABLE IF NOT EXISTS metrics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,6 +215,7 @@ def migrate(conn: sqlite3.Connection, verbose: bool = False) -> dict:
     conn.execute(CREATE_DETECTIONS)
     conn.execute(CREATE_LOGS)
     conn.execute(CREATE_METRICS)
+    conn.execute(CREATE_USERS)
     for stmt in INDEXES:
         conn.execute(stmt)
 

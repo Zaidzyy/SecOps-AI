@@ -11,14 +11,20 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import connect  # noqa: E402
+from conftest import connect, register_and_login  # noqa: E402
 
 import app_groq  # noqa: E402  -- conftest points SECOPS_DB at a temp file first
+import auth  # noqa: E402
 
 
 @pytest.fixture
 def client(migrated_db, monkeypatch):
-    """Flask test client wired to a temp DB seeded with a realistic mix."""
+    """Flask test client wired to a temp DB seeded with a realistic mix.
+
+    Logged in through the real /register + /login flow: every endpoint under
+    test sits behind the auth gate, so an anonymous client would only ever see
+    401s (that behavior has its own tests in test_auth.py).
+    """
     conn = connect(migrated_db)
     conn.executemany("""
         INSERT INTO detections (src_ip, dst_ip, src_port, dst_port, proto,
@@ -52,7 +58,8 @@ def client(migrated_db, monkeypatch):
 
     monkeypatch.setattr(app_groq, "get_db_connection", lambda: connect(migrated_db))
     app_groq.app.config.update(TESTING=True)
-    return app_groq.app.test_client()
+    auth.reset_login_limiter()
+    return register_and_login(app_groq.app.test_client())
 
 
 # --- /detections ------------------------------------------------------------

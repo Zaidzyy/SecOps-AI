@@ -28,6 +28,11 @@
             <span class="livedot-ring"></span><span class="livedot-core"></span>
         </span>
         <span class="live-label" id="live-label">connecting</span>
+        <span class="chip chip-user" title="Signed-in operator">{{ username }}</span>
+        <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="logout-btn" title="End this session">sign out</button>
+        </form>
     </div>
 </header>
 

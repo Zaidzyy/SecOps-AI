@@ -111,6 +111,43 @@ REP_CACHE_TTL_S = 900
 REP_CACHE_MAX = 16384
 ENRICHMENT_HTTP_TIMEOUT_S = 4.0
 
+# --- Web app / auth (Phase 4a) ---
+# The session-signing key. REQUIRED to start the server: without a stable key,
+# every restart would invalidate all sessions, and a guessable default would
+# make session forgery trivial. app_groq warns at import (tests/replay still
+# work on an ephemeral key) and refuses to start the server if unset.
+SECRET_KEY = os.getenv("SECOPS_SECRET_KEY")
+
+HOST = os.getenv("SECOPS_HOST", "127.0.0.1")
+PORT = int(os.getenv("SECOPS_PORT", "5000"))
+
+# Socket.IO CORS allowlist. Never "*": the console is same-origin, so the only
+# origins that legitimately open the WebSocket are the server's own. Comma-
+# separated env override for anything else (e.g. a reverse proxy hostname).
+_DEFAULT_ORIGINS = f"http://{HOST}:{PORT},http://localhost:{PORT},http://127.0.0.1:{PORT}"
+ALLOWED_ORIGINS = sorted({o.strip() for o in
+                          os.getenv("SECOPS_ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+                          if o.strip()})
+
+# Debug is opt-in, never the default: debug mode ships the Werkzeug debugger,
+# which is remote code execution for anyone who can reach the port.
+DEBUG = os.getenv("SECOPS_DEBUG", "0").lower() in ("1", "true", "yes")
+
+# Flask-SocketIO refuses to serve on Werkzeug when stdin is not a TTY (its
+# production guard). Interactive `python app_groq.py` is unaffected; this
+# opt-in exists for non-interactive DEV contexts only (CI smoke tests,
+# background runs). A real deployment gets a real WSGI server in Phase 4b.
+ALLOW_WERKZEUG = os.getenv("SECOPS_ALLOW_WERKZEUG", "0").lower() in ("1", "true", "yes")
+
+# Session cookie: HttpOnly and SameSite=Lax are unconditional (set in app_groq);
+# Secure is opt-in because it requires HTTPS, which a local demo does not have.
+SESSION_COOKIE_SECURE = os.getenv("SECOPS_COOKIE_SECURE", "0").lower() in ("1", "true", "yes")
+
+# Login brute-force throttle: after this many failed attempts from one address
+# inside the window, /login answers 429 until the window slides past.
+LOGIN_MAX_FAILURES = 5
+LOGIN_FAILURE_WINDOW_S = 300.0
+
 # --- Read API (Phase 3) ---
 # Paged so a client can never ask the DB for an unbounded result set.
 API_PAGE_SIZE_DEFAULT = 50

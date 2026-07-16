@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, session
 import psutil
 import datetime
 import sqlite3
@@ -18,6 +18,7 @@ import time
 from dotenv import load_dotenv
 import os
 
+import auth
 import config
 import flow_tracker as ft
 import cnn_engine
@@ -36,7 +37,31 @@ GROQ_HEADERS = {
 }
 
 app = Flask(__name__)
-socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
+
+# Sessions are Flask's signed cookies: HttpOnly (no script access) and
+# SameSite=Lax (no cross-site sends) always; Secure is config-gated because it
+# needs HTTPS, which the local demo does not terminate. The signing key comes
+# from SECOPS_SECRET_KEY -- imports (tests, --replay) tolerate an ephemeral
+# fallback, but the server refuses to start without a real one (see __main__).
+if not config.SECRET_KEY:
+    print("[WARN] SECOPS_SECRET_KEY is not set. Using an ephemeral session key; "
+          "the server will refuse to start until it is set.")
+app.config.update(
+    SECRET_KEY=config.SECRET_KEY or os.urandom(32),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=config.SESSION_COOKIE_SECURE,
+)
+
+# CORS locked to the console's own origins (config.ALLOWED_ORIGINS), never "*":
+# the dashboard is same-origin, so nothing legitimate needs a wildcard.
+socketio = SocketIO(app, async_mode='threading',
+                    cors_allowed_origins=config.ALLOWED_ORIGINS)
+
+# /register, /login, /logout + the default-deny gate over every other route.
+# The lambda is late-bound on purpose: tests swap get_db_connection for a
+# temp-DB provider and auth must follow.
+auth.init_app(app, lambda: get_db_connection())
 
 
 
@@ -307,20 +332,45 @@ def fetch_recent_network_data():
 
 
 
+# The metrics stream is one global loop, started on the first authenticated
+# connect -- the old per-connect start leaked one immortal thread per page load.
+_metrics_task_started = False
+_metrics_task_lock = threading.Lock()
+
+
+def _ensure_metrics_task():
+    global _metrics_task_started
+    with _metrics_task_lock:
+        if _metrics_task_started:
+            return
+        socketio.start_background_task(send_system_metrics)
+        _metrics_task_started = True
+
+
 @socketio.on('connect')
 def handle_connect():
+    # GATE THE SOCKET: the HTTP guard means nothing if the live stream still
+    # broadcasts. Flask-SocketIO shares the Flask session, so the same signed
+    # cookie authenticates both; returning False rejects the connection and
+    # the anonymous client receives no events at all.
+    if not session.get("user_id"):
+        return False
     print("🛡️ SecOps-AI: Operator console dashboard interface connected via WebSocket.")
-    socketio.start_background_task(send_system_metrics)  
+    _ensure_metrics_task()
 
 
 @socketio.on('new_log')
 def handle_new_log(log_data):
-    socketio.emit('new_log', log_data) 
+    if not session.get("user_id"):
+        return  # defense in depth; an anonymous socket never connects at all
+    socketio.emit('new_log', log_data)
 
 
 @socketio.on('new_network_request')
 def handle_new_network_request(network_data):
-    socketio.emit('new_network_request', network_data)  
+    if not session.get("user_id"):
+        return
+    socketio.emit('new_network_request', network_data)
 
 
 
@@ -645,7 +695,7 @@ def analyze_metrics(cpu, memory, disk):
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html', username=session.get("username"))
 
 # Server-Status
 @app.route('/server-status', methods=['GET'])
@@ -870,6 +920,13 @@ if __name__ == '__main__':
               f"telemetry + detections written, verdicts emitted over WebSocket.")
         sys.exit(0)
 
+    # No key, no server: sessions signed with a random per-process key would
+    # all die on restart, and silently generating one hides a misconfiguration.
+    if not config.SECRET_KEY:
+        sys.exit("[FATAL] SECOPS_SECRET_KEY is not set. Generate one "
+                 "(e.g. python -c \"import secrets; print(secrets.token_hex(32))\") "
+                 "and put it in .env or the environment, then restart.")
+
     print("="*75)
     print("🚀 SECOPS-AI: AI-DRIVEN REAL-TIME SIEM THREAT OPERATOR PIPELINE INITIALIZED")
     print("🛡️ Real-Time Packet Sniffing Engine & Groq LLM Triage Accelerator Active")
@@ -893,5 +950,13 @@ if __name__ == '__main__':
 
     # async_mode='threading' (see SocketIO above): the app is threaded throughout,
     # so there is no eventlet import and no monkey-patching.
-    socketio.run(app, debug=True, host='127.0.0.1', port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
+    #
+    # debug defaults to OFF (config.DEBUG): debug mode ships the Werkzeug
+    # debugger, which is RCE for anyone who can reach the port. The hardcoded
+    # allow_unsafe_werkzeug=True is gone -- Flask-SocketIO's production guard
+    # (it raises on Werkzeug when stdin is not a TTY) now stays active by
+    # default; SECOPS_ALLOW_WERKZEUG=1 is the explicit dev-only override for
+    # non-interactive runs until Phase 4b brings a real WSGI server.
+    socketio.run(app, debug=config.DEBUG, host=config.HOST, port=config.PORT,
+                 use_reloader=False, allow_unsafe_werkzeug=config.ALLOW_WERKZEUG)
     

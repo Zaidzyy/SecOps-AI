@@ -221,9 +221,19 @@ captures in `docs/screenshots/`.
 
    ```env
    GROQ_API_KEY=your_groq_api_key_here
+   SECOPS_SECRET_KEY=paste_a_long_random_hex_string_here
    ```
 
    - **GROQ_API_KEY**: Get your API key from `console.groq.com`
+   - **SECOPS_SECRET_KEY**: signs the login session cookies — **required to start
+     the server**. Generate one with:
+     ```bash
+     python -c "import secrets; print(secrets.token_hex(32))"
+     ```
+
+   Optional overrides (defaults in parentheses): `SECOPS_HOST` (`127.0.0.1`),
+   `SECOPS_PORT` (`5000`), `SECOPS_ALLOWED_ORIGINS` (the local origin),
+   `SECOPS_DEBUG` (`0`), `SECOPS_COOKIE_SECURE` (`0`; set `1` behind HTTPS).
 
    > `HF_TOKEN` is no longer required. It existed only to download the borrowed
    > `SecIDS-CNN.h5`, which is no longer on the inference path — the shipped
@@ -260,6 +270,10 @@ captures in `docs/screenshots/`.
    ```text
    http://127.0.0.1:5000
    ```
+
+   You'll land on the sign-in page — register an operator account first
+   (`/register`), then log in. Every console page, data endpoint, and the live
+   WebSocket stream requires a logged-in session.
 
 ## Pro Tips for Deployment
 
@@ -306,6 +320,44 @@ python app_groq.py --replay samples/demo-public-ips.pcap
 ```
 
 Regenerate it with `python scripts/make_demo_pcap.py`.
+
+## Security
+
+**Scope, honestly stated: this is app-level authentication for a demo/portfolio
+project, not production hardening.**
+
+What the app does:
+
+- **Full multi-user auth** — `/register`, `/login`, `/logout` against a `users`
+  table. Passwords are stored only as salted hashes
+  (`werkzeug.security.generate_password_hash`); plaintext never touches the DB.
+- **Default-deny access control** — every route except the auth pages requires a
+  logged-in session (anonymous browsers are redirected to `/login`; API calls get
+  a `401`). New routes are protected by default, not by remembering a decorator.
+- **The WebSocket is gated too** — the Socket.IO connect handler rejects any
+  connection without a logged-in session, so the live metric/verdict stream
+  can't leak what the HTTP guard protects.
+- **Session cookies** are `HttpOnly` + `SameSite=Lax`, `Secure` when you set
+  `SECOPS_COOKIE_SECURE=1` behind HTTPS. The signing key must come from the
+  environment (`SECOPS_SECRET_KEY`) — the server refuses to start without one.
+- **CSRF tokens** on the login/register/logout forms (per-session,
+  constant-time compared).
+- **Login throttling** — 5 failed attempts per IP in 5 minutes returns `429`.
+  In-memory and per-process: enough for a single-instance demo, not for a
+  multi-process deployment.
+- **No wildcard CORS, no debug mode** — Socket.IO origins are locked to the
+  console's own origin (`SECOPS_ALLOWED_ORIGINS` to override), and Flask debug
+  (which ships an RCE-grade debugger) is off unless you opt in.
+
+What it deliberately does **not** claim:
+
+- **No TLS termination** — the dev server speaks plain HTTP; anything
+  security-relevant on a real network needs a TLS-terminating proxy in front.
+- **No secrets manager** — keys live in `.env` (gitignored), which is fine for a
+  demo and inadequate for production.
+- **Werkzeug dev server** — still the dev server underneath; a production WSGI
+  server is Phase 4b (Docker) territory, along with rate limiting that survives
+  multiple processes.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
