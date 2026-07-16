@@ -168,3 +168,24 @@ def test_network_requests_stays_backwards_compatible(client):
     assert isinstance(body, list)
     assert len(body) == 3
     assert {"ip", "country", "summary", "timestamp"} <= set(body[0])
+
+
+def test_console_page_is_self_contained(client):
+    """The console must render offline on a fresh clone: every script and
+    stylesheet it references is served from /static, never a CDN. (The map's
+    no-tile-server rule, applied to the whole page.)"""
+    import re
+    html = client.get("/").get_data(as_text=True)
+    # Every fetched resource (src= / href=) must be local. Raw substring checks
+    # would trip on the favicon's data: URI, whose SVG xmlns is an http:// URL
+    # that never touches the network.
+    refs = re.findall(r'(?:src|href)="([^"]+)"', html)
+    external = [r for r in refs if r.startswith(("http://", "https://", "//"))]
+    assert external == [], \
+        f"console references external hosts -- must be self-contained: {external}"
+    for asset in ("static/css/console.css", "static/js/console.js",
+                  "static/vendor/chart.umd.min.js", "static/vendor/socket.io.min.js"):
+        assert asset in html, f"console page no longer references {asset}"
+        assert client.get("/" + asset).status_code == 200, f"{asset} not served"
+    # the map's data file is fetched by console.js, not the page -- check it serves
+    assert client.get("/static/data/world.geojson").status_code == 200

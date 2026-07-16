@@ -1,428 +1,152 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecOps-AI Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        cyber: { 900: '#0f172a', 800: '#1e293b', accent: '#06b6d4' }
-                    }
-                }
-            }
-        }
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
-    <style>
-        /* Custom Scrollbar for a native app feel */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-    </style>
+    <title>SecOps-AI Console</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2339d5f2' d='M12 2 4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/console.css') }}">
+    <!-- Everything is served locally: no CDN, no tile server. The console must
+         render on a fresh clone with no network (see IMPROVEMENT_PLAN 3b). -->
+    <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='vendor/socket.io.min.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/console.js') }}" defer></script>
 </head>
-<body class="bg-slate-900 text-slate-300 font-sans antialiased selection:bg-cyan-500 selection:text-white">
-    
-    <nav class="bg-slate-950 border-b border-cyan-500/30 sticky top-0 z-50 shadow-md">
-        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
-            <a class="text-2xl font-bold text-cyan-400 tracking-wider flex items-center gap-3" href="#">
-                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-                SECOPS-AI by Zaid
-            </a>
-            <div class="flex items-center gap-2">
-                <span class="flex h-3 w-3 relative">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </span>
-                <span class="text-emerald-400 text-sm font-bold uppercase tracking-widest">System Live</span>
-            </div>
-        </div>
-    </nav>
+<body>
 
-    <div class="container mx-auto px-4 py-8">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 transition hover:border-cyan-500/50">
-                <h5 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
-                    Hardware Telemetry
-                </h5>
-                <ul id="system-info" class="space-y-3 text-sm">
-                    </ul>
-            </div>
-
-            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 lg:col-span-1">
-                <h5 class="text-lg font-bold text-white mb-5 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-                    Resource Saturation
-                </h5>
-                <div class="mb-4">
-                    <canvas id="cpuChart" height="120"></canvas>
-                </div>
-                <div class="grid grid-cols-2 gap-4 justify-items-center">
-                    <canvas id="memoryChart" height="120"></canvas>
-                    <canvas id="diskChart" height="120"></canvas>
-                </div>
-            </div>
-
-            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg shadow-cyan-900/10 flex flex-col h-[500px]">
-                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                    AI Triage Operator
-                </h5>
-                
-                <div class="ai-chat-box flex-grow overflow-y-auto bg-slate-950 p-4 rounded-lg border border-slate-700 mb-4 font-sans text-sm shadow-inner" id="chat-box">
-                    <div class="text-center text-slate-600 mb-4 text-xs tracking-wider uppercase mt-2 border-b border-slate-800 pb-2">Session Initialized</div>
-                </div>
-                
-                <div class="mt-auto relative">
-                    <input type="text" class="w-full bg-slate-900 border border-slate-600 text-slate-200 rounded-lg pl-4 pr-24 py-3 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition shadow-inner" id="chat-input" placeholder="Query threat intel..." onkeypress="if(event.key === 'Enter') sendMessage()">
-                    <button class="absolute right-2 top-2 bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-1.5 rounded-md font-bold tracking-wide transition-colors text-sm shadow-md" onclick="sendMessage()">SEND</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-            
-            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg overflow-hidden flex flex-col">
-                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                    Live Network Traffic
-                </h5>
-                <div class="overflow-x-auto flex-grow">
-                    <table class="w-full text-sm text-left whitespace-nowrap">
-                        <thead class="text-xs uppercase bg-slate-900/50 text-slate-400 border-b border-slate-700">
-                            <tr>
-                                <th class="px-4 py-3 font-semibold tracking-wider">IP Address</th>
-                                <th class="px-4 py-3 font-semibold tracking-wider">Source</th>
-                                <th class="px-4 py-3 font-semibold tracking-wider hidden md:table-cell">Details</th>
-                                <th class="px-4 py-3 font-semibold tracking-wider text-center">Threat</th>
-                            </tr>
-                        </thead>
-                        <tbody id="network-requests" class="divide-y divide-slate-700/50 text-slate-300">
-                            </tbody>
-                    </table>
-                </div>
-                <div class="flex justify-between mt-4 pt-4 border-t border-slate-700">
-                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="network-prev">Previous</button>
-                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="network-next">Next</button>
-                </div>
-            </div>
-
-            <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg overflow-hidden flex flex-col">
-                <h5 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                    System Event Matrix
-                </h5>
-                <div class="overflow-x-auto flex-grow">
-                    <table class="w-full text-sm text-left">
-                        <thead class="text-xs uppercase bg-slate-900/50 text-slate-400 border-b border-slate-700">
-                            <tr>
-                                <th class="px-4 py-3 font-semibold tracking-wider w-1/4">Timestamp</th>
-                                <th class="px-4 py-3 font-semibold tracking-wider">Forensic Log</th>
-                            </tr>
-                        </thead>
-                        <tbody id="log-list" class="divide-y divide-slate-700/50 text-slate-300 font-mono text-xs">
-                            </tbody>
-                    </table>
-                </div>
-                <div class="flex justify-between mt-4 pt-4 border-t border-slate-700">
-                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="logs-prev">Previous</button>
-                    <button class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 py-2 rounded-lg text-sm font-medium transition" id="logs-next">Next</button>
-                </div>
-            </div>
-        </div>
+<header class="topbar">
+    <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5.25 3.4 9.74 8 11 4.6-1.26 8-5.75 8-11V5l-8-3z"/></svg>
+        <span class="brand-name">SECOPS-AI</span>
+        <span class="brand-sub">flow detection console</span>
     </div>
+    <div class="topbar-right">
+        <span class="chip chip-model" title="Shipped detector and its frontier-chosen operating point">
+            GBT &alpha;=0.5 &middot; thr 0.95
+        </span>
+        <span class="livedot" id="live-indicator" data-state="connecting">
+            <span class="livedot-ring"></span><span class="livedot-core"></span>
+        </span>
+        <span class="live-label" id="live-label">connecting</span>
+    </div>
+</header>
 
-    <script>
-        // Set Chart.js Defaults for Dark Mode
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.borderColor = '#334155';
-        Chart.defaults.font.family = "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+<section class="statstrip" aria-label="Live counters">
+    <div class="stat"><span class="stat-value" id="st-pps">&mdash;</span><span class="stat-label">packets / sec</span></div>
+    <div class="stat"><span class="stat-value" id="st-captured">&mdash;</span><span class="stat-label">packets captured</span></div>
+    <div class="stat"><span class="stat-value" id="st-dropped">&mdash;</span><span class="stat-label">dropped</span></div>
+    <div class="stat"><span class="stat-value" id="st-ips">&mdash;</span><span class="stat-label">unique IPs</span></div>
+    <div class="stat"><span class="stat-value" id="st-flows">&mdash;</span><span class="stat-label">flows classified</span></div>
+    <div class="stat"><span class="stat-value" id="st-suspicious">&mdash;</span><span class="stat-label">suspicious</span></div>
+</section>
 
-        const cpuChartCtx = document.getElementById('cpuChart').getContext('2d');
-        const memoryChartCtx = document.getElementById('memoryChart').getContext('2d');
-        const diskChartCtx = document.getElementById('diskChart').getContext('2d');
+<main class="console">
 
-        // CPU Line Chart (Styled to look like a neon area graph)
-        const cpuChart = new Chart(cpuChartCtx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{ 
-                    label: 'CPU Usage (%)', 
-                    data: [], 
-                    borderColor: '#0ea5e9', 
-                    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0
-                }]
-            },
-            options: { 
-                scales: { 
-                    y: { beginAtZero: true, max: 100, grid: { color: '#334155', drawBorder: false } },
-                    x: { grid: { display: false }, ticks: { display: false } }
-                },
-                plugins: { legend: { display: false } },
-                maintainAspectRatio: false
-            }
-        });
+    <section class="panel panel-map" aria-label="Threat map">
+        <header class="panel-head">
+            <h2>Threat map</h2>
+            <span class="panel-meta" id="map-meta"></span>
+        </header>
+        <div class="map-wrap">
+            <svg id="worldmap" role="img" aria-label="World map of detection origins"></svg>
+            <div class="map-tip" id="map-tip" hidden></div>
+            <div class="map-empty" id="map-empty" hidden>
+                No located detections yet &mdash; replay a capture:
+                <code>python app_groq.py --replay samples/dos-volumetric.pcap</code>
+            </div>
+        </div>
+        <footer class="map-legend">
+            <span class="lg"><span class="lg-dot lg-normal"></span>normal</span>
+            <span class="lg"><span class="lg-dot lg-suspicious"></span>suspicious</span>
+            <span class="lg lg-note">dot size = detections at location</span>
+        </footer>
+    </section>
 
-        // Memory Doughnut Chart
-        const memoryChart = new Chart(memoryChartCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Used', 'Available'],
-                datasets: [{
-                    data: [0, 100], 
-                    backgroundColor: ['#8b5cf6', '#0f172a'],
-                    borderWidth: 0,
-                    hoverOffset: 4
-                }]
-            },
-            options: { cutout: '75%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
-        });
+    <section class="panel panel-feed" aria-label="Detection feed">
+        <header class="panel-head">
+            <h2>Detection feed</h2>
+            <div class="seg" role="tablist" aria-label="Filter detections">
+                <button class="seg-btn is-active" id="feed-all" role="tab">All</button>
+                <button class="seg-btn" id="feed-sus" role="tab">Suspicious</button>
+            </div>
+        </header>
+        <div class="feed" id="feed" tabindex="0"></div>
+        <div class="feed-empty" id="feed-empty" hidden>
+            No detections yet. Start sniffing or replay a capture to fill the feed.
+        </div>
+        <footer class="pager">
+            <button class="btn" id="feed-prev">Newer</button>
+            <span class="pager-info" id="feed-page">&mdash;</span>
+            <button class="btn" id="feed-next">Older</button>
+        </footer>
+    </section>
 
-        // Disk Doughnut Chart
-        const diskChart = new Chart(diskChartCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Used', 'Available'],
-                datasets: [{
-                    data: [0, 100], 
-                    backgroundColor: ['#10b981', '#0f172a'],
-                    borderWidth: 0,
-                    hoverOffset: 4
-                }]
-            },
-            options: { cutout: '75%', plugins: { legend: { display: false } }, maintainAspectRatio: false }
-        });
+    <section class="panel panel-rate" aria-label="Traffic rate">
+        <header class="panel-head">
+            <h2>Traffic rate</h2>
+            <span class="panel-meta"><span class="big-inline" id="rate-now">0</span> pkt/s</span>
+        </header>
+        <div class="chart-wrap"><canvas id="rate-chart"></canvas></div>
+    </section>
 
-        // Function to push live data to charts
-        function updateCharts(cpu, memory, disk) {
-            const timeLabel = new Date().toLocaleTimeString();
-            cpuChart.data.labels.push(timeLabel);
-            cpuChart.data.datasets[0].data.push(cpu);
-            if (cpuChart.data.labels.length > 20) {
-                cpuChart.data.labels.shift();
-                cpuChart.data.datasets[0].data.shift();
-            }
-            cpuChart.update('none');
+    <section class="panel panel-origins" aria-label="Detection origins">
+        <header class="panel-head">
+            <h2>Top origins</h2>
+            <span class="panel-meta">by located detections</span>
+        </header>
+        <div class="chart-wrap"><canvas id="origin-chart"></canvas></div>
+    </section>
 
-            memoryChart.data.datasets[0].data = [memory, 100 - memory];
-            memoryChart.update('none');
+    <section class="panel panel-host" aria-label="Host health">
+        <header class="panel-head">
+            <h2>Host health</h2>
+            <span class="panel-meta" id="host-meta"></span>
+        </header>
+        <div class="chart-wrap chart-wrap-cpu"><canvas id="cpu-chart"></canvas></div>
+        <div class="meters">
+            <div class="meter"><span class="meter-label">memory</span>
+                <span class="meter-track"><span class="meter-fill" id="mem-fill"></span></span>
+                <span class="meter-value" id="mem-value">&mdash;</span></div>
+            <div class="meter"><span class="meter-label">disk</span>
+                <span class="meter-track"><span class="meter-fill" id="disk-fill"></span></span>
+                <span class="meter-value" id="disk-value">&mdash;</span></div>
+        </div>
+    </section>
 
-            diskChart.data.datasets[0].data = [disk, 100 - disk];
-            diskChart.update('none');
-        }
+    <section class="panel panel-chat" aria-label="Triage assistant">
+        <header class="panel-head">
+            <h2>Triage assistant</h2>
+            <span class="panel-meta">LLM summary of what the sensor sees</span>
+        </header>
+        <div class="chat" id="chat-box">
+            <div class="chat-hint">Ask about current traffic, a source IP, or a verdict.</div>
+        </div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Ask the triage assistant&hellip;"
+                   autocomplete="off" aria-label="Message the triage assistant">
+            <button class="btn btn-accent" id="chat-send">Send</button>
+        </div>
+    </section>
 
-        // Initialize WebSockets
-        const socket = io();  
+    <section class="panel panel-log" aria-label="Event log">
+        <header class="panel-head">
+            <h2>Event log</h2>
+            <span class="panel-meta">sensor + system events</span>
+        </header>
+        <div class="log" id="log-list"></div>
+        <footer class="pager">
+            <button class="btn" id="log-prev">Newer</button>
+            <span class="pager-info" id="log-page">&mdash;</span>
+            <button class="btn" id="log-next">Older</button>
+        </footer>
+    </section>
 
-        // Listen for live system metrics
-        socket.on('update_metrics', (data) => {
-            updateCharts(data.cpu_usage, data.memory_usage, data.disk_usage);
-            const systemInfoList = document.getElementById('system-info');
-            systemInfoList.innerHTML = `
-                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Frequency</span> <span class="text-cyan-400 font-mono">${data.cpu_frequency} MHz</span></li>
-                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Logical Cores</span> <span class="text-cyan-400 font-mono">${data.cpu_cores}</span></li>
-                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Usage</span> <span class="text-cyan-400 font-mono">${data.cpu_usage}%</span></li>
-                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Total RAM</span> <span class="text-purple-400 font-mono">${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</span></li>
-                <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Disk Space</span> <span class="text-emerald-400 font-mono">${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</span></li>
-                <li class="flex justify-between pt-1"><span>GPU Status</span> <span class="text-slate-400 font-mono text-xs">VRAM: ${data.gpu_memory_used}</span></li>
-            `;
-        });
+</main>
 
-        // Listen for live network packets
-        socket.on('new_network_request', (request) => {
-            const networkRequestsList = document.getElementById('network-requests');
-            const isBlacklisted = request.blacklisted === 'Yes';
-            const threatBadge = isBlacklisted 
-                ? `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">Blocked</span>` 
-                : `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/50">Clean</span>`;
+<footer class="foot">
+    <span>Detector: gradient-boosted trees on 6 flow features &middot; operating point &alpha;=0.5 / thr 0.95, chosen on a validation frontier</span>
+    <span>Scope: volumetric DoS/DDoS + rate-based &middot; per-flow benign FPR budget &le;1% &middot; held-out test FPR 0.15%</span>
+</footer>
 
-            networkRequestsList.innerHTML = `
-                <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
-                    <td class="px-4 py-3 font-mono text-cyan-400">${request.ip}</td>
-                    <td class="px-4 py-3 text-slate-300 truncate max-w-[150px]">${request.country}</td>
-                    <td class="px-4 py-3 text-slate-400 hidden md:table-cell text-xs truncate max-w-[200px]" title="${request.summary}">${request.summary}</td>
-                    <td class="px-4 py-3 text-center">${threatBadge}</td>
-                </tr>` + networkRequestsList.innerHTML;
-        });
-
-        // Listen for live database logs
-        socket.on('new_log', (log) => {
-            const logList = document.getElementById('log-list');
-            const timeStr = log.timestamp.split(' ')[1] || log.timestamp;
-            logList.innerHTML = `
-                <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
-                    <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${timeStr}</td>
-                    <td class="px-4 py-2 text-cyan-100/70">${log.log}</td>
-                </tr>` + logList.innerHTML;
-        });
-
-        // AI Chat Functionality
-        function sendMessage() {
-            const inputField = document.getElementById('chat-input');
-            const message = inputField.value.trim();
-
-            if (message) {
-                const chatBox = document.getElementById('chat-box');
-                
-                // Append Operator Message (Right aligned, Cyan bubble)
-                chatBox.innerHTML += `
-                    <div class="mb-4 text-right">
-                        <span class="bg-cyan-900/60 border border-cyan-700/50 text-cyan-50 px-4 py-2 rounded-2xl rounded-tr-sm inline-block text-left shadow-lg max-w-[85%]">
-                            ${message}
-                        </span>
-                    </div>`;
-                inputField.value = ''; 
-
-                // Append Loading Animation
-                const loadingId = 'loading-' + Date.now();
-                chatBox.innerHTML += `
-                    <div id="${loadingId}" class="mb-4 flex items-center gap-3 text-slate-400 text-xs tracking-wider uppercase font-semibold">
-                        <svg class="animate-spin h-4 w-4 text-cyan-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        Analyzing Telemetry Matrix...
-                    </div>`;
-                chatBox.scrollTop = chatBox.scrollHeight; 
-
-                // Network Request to Backend
-                fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    const loadingElement = document.getElementById(loadingId);
-                    if (loadingElement) loadingElement.remove();
-
-                    let reply = data.response || data.message || "No response received from model.";
-                    
-                    // Simple Markdown parser for bold text (**text**)
-                    reply = reply.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>');
-                    
-                    // Append AI Response (Left aligned, Slate bubble with icon)
-                    chatBox.innerHTML += `
-                        <div class="mb-4 flex flex-col items-start">
-                            <span class="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-widest mb-1 ml-1">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-                                SecOps-AI
-                            </span>
-                            <span class="bg-slate-800/80 border border-slate-600/50 text-slate-300 px-5 py-4 rounded-2xl rounded-tl-sm inline-block shadow-lg max-w-[95%] leading-relaxed">
-                                ${reply}
-                            </span>
-                        </div>`;
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                })
-                .catch(error => {
-                    console.error("Error processing AI request:", error);
-                    const loadingElement = document.getElementById(loadingId);
-                    if (loadingElement) loadingElement.remove();
-                    
-                    chatBox.innerHTML += `
-                        <div class="mb-4 text-left">
-                            <span class="bg-red-900/20 border border-red-700/50 text-red-400 px-4 py-2 rounded-2xl rounded-tl-sm inline-block shadow-lg text-sm">
-                                <strong>System Error:</strong> Disconnected from AI interface.
-                            </span>
-                        </div>`;
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                });
-            }
-        }
-
-        // Pagination functionality for tables
-        let currentNetworkPage = 1;
-        function fetchNetworkRequests(page = 1) {
-            fetch(`/network-requests?page=${page}`)
-                .then(response => response.json())
-                .then(data => {
-                    const networkRequestsList = document.getElementById('network-requests');
-                    networkRequestsList.innerHTML = '';
-                    data.forEach(request => {
-                        const isBlacklisted = request.blacklisted === 'Yes';
-                        const threatBadge = isBlacklisted 
-                            ? `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">Blocked</span>` 
-                            : `<span class="px-2 py-0.5 inline-flex text-[10px] uppercase tracking-wider font-bold rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/50">Clean</span>`;
-                        
-                        networkRequestsList.innerHTML += `
-                            <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
-                                <td class="px-4 py-3 font-mono text-cyan-400">${request.ip}</td>
-                                <td class="px-4 py-3 text-slate-300 truncate max-w-[150px]">${request.country}</td>
-                                <td class="px-4 py-3 text-slate-400 hidden md:table-cell text-xs truncate max-w-[200px]" title="${request.summary}">${request.summary}</td>
-                                <td class="px-4 py-3 text-center">${threatBadge}</td>
-                            </tr>`;
-                    });
-                })
-                .catch(error => console.error("Error fetching network requests:", error));
-        }
-
-        document.getElementById('network-prev').addEventListener('click', () => {
-            if (currentNetworkPage > 1) { currentNetworkPage--; fetchNetworkRequests(currentNetworkPage); }
-        });
-        document.getElementById('network-next').addEventListener('click', () => {
-            currentNetworkPage++; fetchNetworkRequests(currentNetworkPage);
-        });
-
-        let currentLogsPage = 1;
-        function fetchLogs(page = 1) {
-            fetch(`/logs?page=${page}`)
-                .then(response => response.json())
-                .then(data => {
-                    const logList = document.getElementById('log-list');
-                    logList.innerHTML = '';
-                    data.forEach(log => {
-                        const timeStr = log.timestamp.split(' ')[1] || log.timestamp;
-                        logList.innerHTML += `
-                            <tr class="hover:bg-slate-700/30 transition border-b border-slate-700/50 last:border-0">
-                                <td class="px-4 py-2 text-slate-500 whitespace-nowrap">${timeStr}</td>
-                                <td class="px-4 py-2 text-cyan-100/70">${log.log}</td>
-                            </tr>`;
-                    });
-                })
-                .catch(error => console.error("Error fetching logs:", error));
-        }
-
-        document.getElementById('logs-prev').addEventListener('click', () => {
-            if (currentLogsPage > 1) { currentLogsPage--; fetchLogs(currentLogsPage); }
-        });
-        document.getElementById('logs-next').addEventListener('click', () => {
-            currentLogsPage++; fetchLogs(currentLogsPage);
-        });
-
-        function fetchSystemInfo() {
-            fetch('/system-info')
-                .then(response => response.json())
-                .then(data => {
-                    const systemInfoList = document.getElementById('system-info');
-                    if (data.error) {
-                        systemInfoList.innerHTML = `<li class="text-red-400 font-bold">${data.error}</li>`;
-                    } else {
-                        systemInfoList.innerHTML = `
-                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Frequency</span> <span class="text-cyan-400 font-mono">${data.cpu_frequency} MHz</span></li>
-                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Logical Cores</span> <span class="text-cyan-400 font-mono">${data.cpu_cores}</span></li>
-                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>CPU Usage</span> <span class="text-cyan-400 font-mono">${data.cpu_usage}%</span></li>
-                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Total RAM</span> <span class="text-purple-400 font-mono">${(data.memory_total / (1024 ** 3)).toFixed(2)} GB</span></li>
-                            <li class="flex justify-between border-b border-slate-700/50 pb-2"><span>Disk Space</span> <span class="text-emerald-400 font-mono">${(data.disk_total / (1024 ** 3)).toFixed(2)} GB</span></li>
-                            <li class="flex justify-between pt-1"><span>GPU Status</span> <span class="text-slate-400 font-mono text-xs">VRAM: ${data.gpu_memory_used}</span></li>
-                        `;
-                    }
-                });
-        }
-
-        // Initial Data Fetch
-        fetchSystemInfo();
-        fetchNetworkRequests(currentNetworkPage);
-        fetchLogs(currentLogsPage);
-    </script>
 </body>
 </html>

@@ -1,0 +1,554 @@
+/* SecOps-AI console.
+ *
+ * Data sources (all local):
+ *   REST   /stats /detections /threat-map /logs /chat
+ *   Socket update_metrics | new_log | cnn_verdict
+ *
+ * The map is self-contained: bundled GeoJSON rendered to SVG with a hand-rolled
+ * equirectangular projection -- no tile server, no d3, works offline.
+ *
+ * All dynamic text goes through DOM text nodes (never string-concatenated
+ * innerHTML): packet summaries and geo strings are attacker-influenced input.
+ */
+"use strict";
+
+/* ---------- tiny utilities ---------- */
+
+const $ = (id) => document.getElementById(id);
+
+const el = (tag, className, text) => {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text;
+    return n;
+};
+
+const fmt = (n) => {
+    if (n === null || n === undefined) return "—";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e4) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
+};
+
+/* Geo strings arrive as "country, city, region" with filler for missing parts
+   ("Singapore, None, None", "United States, Unknown, Unknown", "Not found,
+   Not found, Not found" depending on the geo API's mood). Show what's real. */
+const GEO_FILLER = new Set(["none", "unknown", "not found", ""]);
+const cleanGeo = (s) => {
+    if (!s) return "unknown";
+    const parts = String(s).split(",").map((p) => p.trim())
+        .filter((p) => !GEO_FILLER.has(p.toLowerCase()));
+    return parts.length ? parts.join(", ") : "unknown";
+};
+
+const timeOf = (ts) => {
+    if (!ts) return "";
+    const m = String(ts).match(/\d{2}:\d{2}:\d{2}/);
+    return m ? m[0] : String(ts);
+};
+
+/* ---------- chart theme (single accent + status colors, no palette cycling) */
+
+const css = getComputedStyle(document.documentElement);
+const C = {
+    accent: css.getPropertyValue("--accent").trim(),
+    ink2: css.getPropertyValue("--ink2").trim(),
+    ink3: css.getPropertyValue("--ink3").trim(),
+    line: css.getPropertyValue("--line").trim(),
+    crit: css.getPropertyValue("--crit").trim(),
+    mono: css.getPropertyValue("--font-mono").trim(),
+};
+
+Chart.defaults.color = C.ink3;
+Chart.defaults.borderColor = C.line;
+Chart.defaults.font.family = C.mono;
+Chart.defaults.font.size = 10;
+Chart.defaults.animation = false;
+
+/* ---------- live indicator ---------- */
+
+const setLive = (state, label) => {
+    $("live-indicator").dataset.state = state;
+    $("live-label").textContent = label;
+};
+
+/* ---------- threat map ---------- */
+
+const MAP = {
+    // Equirectangular, cropped: Antarctica and the empty far north are dead
+    // pixels on a threat map.
+    lonMin: -180, lonMax: 180, latMin: -60, latMax: 84,
+    W: 1000,
+    svg: null, landLayer: null, dotLayer: null, pingLayer: null,
+};
+MAP.H = (MAP.latMax - MAP.latMin) / 360 * MAP.W;   // keep degree aspect
+
+const project = (lon, lat) => [
+    (lon - MAP.lonMin) / (MAP.lonMax - MAP.lonMin) * MAP.W,
+    (MAP.latMax - lat) / (MAP.latMax - MAP.latMin) * MAP.H,
+];
+
+const svgEl = (tag) => document.createElementNS("http://www.w3.org/2000/svg", tag);
+
+function ringToPath(ring) {
+    return ring.map((pt, i) => {
+        const [x, y] = project(pt[0], pt[1]);
+        return (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+    }).join("") + "Z";
+}
+
+function geomToPath(geom) {
+    const polys = geom.type === "Polygon" ? [geom.coordinates]
+        : geom.type === "MultiPolygon" ? geom.coordinates : [];
+    return polys.map((poly) => poly.map(ringToPath).join("")).join("");
+}
+
+async function initMap() {
+    const svg = $("worldmap");
+    svg.setAttribute("viewBox", `0 0 ${MAP.W} ${MAP.H}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    MAP.svg = svg;
+
+    const grat = svgEl("g");
+    for (let lon = -150; lon <= 150; lon += 30) {
+        const p = svgEl("path");
+        const [x] = project(lon, 0);
+        p.setAttribute("d", `M${x} 0V${MAP.H}`);
+        p.setAttribute("class", "map-grat");
+        grat.appendChild(p);
+    }
+    for (let lat = -30; lat <= 60; lat += 30) {
+        const p = svgEl("path");
+        const [, y] = project(0, lat);
+        p.setAttribute("d", `M0 ${y}H${MAP.W}`);
+        p.setAttribute("class", "map-grat");
+        grat.appendChild(p);
+    }
+    svg.appendChild(grat);
+
+    MAP.landLayer = svgEl("g");
+    MAP.dotLayer = svgEl("g");
+    MAP.pingLayer = svgEl("g");
+    svg.appendChild(MAP.landLayer);
+    svg.appendChild(MAP.pingLayer);
+    svg.appendChild(MAP.dotLayer);
+
+    try {
+        const res = await fetch("/static/data/world.geojson");
+        const world = await res.json();
+        for (const f of world.features) {
+            if (f.properties && f.properties.name === "Antarctica") continue;
+            const p = svgEl("path");
+            p.setAttribute("d", geomToPath(f.geometry));
+            p.setAttribute("class", "map-land");
+            MAP.landLayer.appendChild(p);
+        }
+    } catch (e) {
+        console.error("world.geojson failed to load:", e);
+    }
+}
+
+function mapPing(lat, lon, suspicious) {
+    if (lat === null || lat === undefined || lon === null || lon === undefined) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const [x, y] = project(lon, lat);
+    const c = svgEl("circle");
+    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 3);
+    c.setAttribute("class", "map-ping");
+    c.setAttribute("stroke", suspicious ? C.crit : C.accent);
+    const anim = svgEl("animate");
+    anim.setAttribute("attributeName", "r");
+    anim.setAttribute("from", "3"); anim.setAttribute("to", "26");
+    anim.setAttribute("dur", "1.6s"); anim.setAttribute("fill", "freeze");
+    c.appendChild(anim);
+    MAP.pingLayer.appendChild(c);
+    setTimeout(() => c.remove(), 1700);
+}
+
+function showTip(evt, point) {
+    const tip = $("map-tip");
+    tip.replaceChildren(
+        el("div", null, cleanGeo(point.country)),
+        el("div", "map-tip-sub",
+           `${point.count} detection${point.count === 1 ? "" : "s"}` +
+           (point.suspicious_count ? ` · ${point.suspicious_count} suspicious` : "")),
+        el("div", "map-tip-sub", `last seen ${point.last_seen || "—"}`),
+    );
+    tip.hidden = false;
+    const wrap = tip.parentElement.getBoundingClientRect();
+    const x = Math.min(evt.clientX - wrap.left + 12, wrap.width - 250);
+    const y = Math.max(evt.clientY - wrap.top - 10, 4);
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+}
+
+async function refreshMap() {
+    try {
+        const res = await fetch("/threat-map");
+        const data = await res.json();
+        const points = data.points || [];
+        $("map-empty").hidden = points.length > 0;
+        const maxCount = points.reduce((m, p) => Math.max(m, p.count), 1);
+
+        MAP.dotLayer.replaceChildren();
+        for (const p of points) {
+            const [x, y] = project(p.lon, p.lat);
+            const dot = svgEl("circle");
+            dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+            // area encodes count: r ~ sqrt
+            const r = 3 + 9 * Math.sqrt(p.count / maxCount);
+            dot.setAttribute("r", r.toFixed(1));
+            dot.setAttribute("class", "map-dot " +
+                (p.worst_verdict === "suspicious" ? "map-dot-suspicious" : "map-dot-normal"));
+            dot.addEventListener("mouseenter", (e) => showTip(e, p));
+            dot.addEventListener("mousemove", (e) => showTip(e, p));
+            dot.addEventListener("mouseleave", () => { $("map-tip").hidden = true; });
+            MAP.dotLayer.appendChild(dot);
+        }
+        const sus = points.reduce((s, p) => s + (p.suspicious_count || 0), 0);
+        $("map-meta").textContent =
+            `${points.length} locations · ${sus} suspicious`;
+    } catch (e) {
+        console.error("threat-map refresh failed:", e);
+    }
+}
+
+/* ---------- stat strip + traffic rate ---------- */
+
+const rateChart = new Chart($("rate-chart"), {
+    type: "line",
+    data: { labels: [], datasets: [{
+        label: "packets/s",
+        data: [],
+        borderColor: C.accent,
+        backgroundColor: "rgba(57, 213, 242, 0.10)",
+        borderWidth: 2,
+        fill: true,
+        pointRadius: 0,
+        pointHitRadius: 12,
+        tension: 0.3,
+    }]},
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+            y: { beginAtZero: true, grid: { color: C.line }, border: { display: false },
+                 ticks: { maxTicksLimit: 5 } },
+        },
+    },
+});
+
+const RATE_POINTS = 90;
+
+async function refreshStats() {
+    try {
+        const res = await fetch("/stats");
+        const s = await res.json();
+        setLive("live", "sensor live");
+
+        $("st-pps").textContent = fmt(Math.round(s.packets_per_sec || 0));
+        $("st-captured").textContent = fmt(s.packets_captured);
+        $("st-ips").textContent = fmt(s.unique_ips);
+        $("st-flows").textContent = fmt(s.detections);
+
+        const drop = $("st-dropped");
+        drop.textContent = fmt(s.packets_dropped);
+        drop.classList.toggle("is-warn", (s.packets_dropped || 0) > 0);
+
+        const sus = $("st-suspicious");
+        sus.textContent = fmt(s.suspicious);
+        sus.classList.toggle("is-crit", (s.suspicious || 0) > 0);
+
+        const pps = Math.round(s.packets_per_sec || 0);
+        $("rate-now").textContent = fmt(pps);
+        const t = new Date().toLocaleTimeString([], { hour12: false });
+        rateChart.data.labels.push(t);
+        rateChart.data.datasets[0].data.push(pps);
+        if (rateChart.data.labels.length > RATE_POINTS) {
+            rateChart.data.labels.shift();
+            rateChart.data.datasets[0].data.shift();
+        }
+        rateChart.update("none");
+    } catch (e) {
+        setLive("down", "backend down");
+    }
+}
+
+/* ---------- top origins ---------- */
+
+const originChart = new Chart($("origin-chart"), {
+    type: "bar",
+    data: { labels: [], datasets: [
+        { label: "normal", data: [], backgroundColor: "rgba(57, 213, 242, 0.35)",
+          borderRadius: 3, barThickness: 14 },
+        { label: "suspicious", data: [], backgroundColor: C.crit,
+          borderRadius: 3, barThickness: 14 },
+    ]},
+    options: {
+        indexAxis: "y",
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 8, boxHeight: 8 } } },
+        scales: {
+            x: { stacked: true, grid: { color: C.line }, border: { display: false },
+                 ticks: { maxTicksLimit: 5, precision: 0 } },
+            y: { stacked: true, grid: { display: false }, ticks: { color: C.ink2 } },
+        },
+    },
+});
+
+function refreshOrigins(points) {
+    // country name only (first geo segment), aggregated across cities
+    const byCountry = new Map();
+    for (const p of points || []) {
+        const name = cleanGeo(p.country).split(",")[0];
+        const cur = byCountry.get(name) || { count: 0, sus: 0 };
+        cur.count += p.count; cur.sus += p.suspicious_count || 0;
+        byCountry.set(name, cur);
+    }
+    const top = [...byCountry.entries()]
+        .sort((a, b) => b[1].count - a[1].count).slice(0, 6);
+    originChart.data.labels = top.map(([name]) => name);
+    originChart.data.datasets[0].data = top.map(([, v]) => v.count - v.sus);
+    originChart.data.datasets[1].data = top.map(([, v]) => v.sus);
+    originChart.update("none");
+}
+
+/* one fetch feeds both map + origins */
+async function refreshGeo() {
+    try {
+        const res = await fetch("/threat-map");
+        const data = await res.json();
+        refreshOrigins(data.points);
+    } catch (e) { /* map refresh already logs */ }
+}
+
+/* ---------- detection feed ---------- */
+
+const FEED = { page: 1, pageSize: 40, verdict: null, total: 0 };
+
+function feedRow(d) {
+    const row = el("div", "feed-row");
+    row.appendChild(el("span", "feed-time", timeOf(d.timestamp)));
+
+    const main = el("div", "feed-main");
+    const ipLine = el("div");
+    ipLine.appendChild(el("span", "feed-ip", d.src_ip || d.ip || "?"));
+    main.appendChild(ipLine);
+    main.appendChild(el("div", "feed-geo", cleanGeo(d.country)));
+    if (d.summary) main.title = d.summary;
+    row.appendChild(main);
+
+    const verdict = d.cnn_verdict || d.verdict || "normal";
+    row.appendChild(el("span",
+        "badge " + (verdict === "suspicious" ? "badge-suspicious" : "badge-normal"),
+        verdict));
+
+    const conf = d.cnn_confidence ?? d.confidence;
+    row.appendChild(el("span", "feed-conf",
+        conf === undefined || conf === null ? "" : Number(conf).toFixed(2)));
+    return row;
+}
+
+async function refreshFeed() {
+    try {
+        const q = new URLSearchParams({ page: FEED.page, page_size: FEED.pageSize });
+        if (FEED.verdict) q.set("verdict", FEED.verdict);
+        const res = await fetch("/detections?" + q);
+        const data = await res.json();
+        FEED.total = data.total || 0;
+
+        const feed = $("feed");
+        feed.replaceChildren(...(data.items || []).map(feedRow));
+        $("feed-empty").hidden = FEED.total > 0;
+
+        const pages = Math.max(1, Math.ceil(FEED.total / FEED.pageSize));
+        $("feed-page").textContent =
+            `${FEED.page} / ${pages} · ${fmt(FEED.total)} flows`;
+        $("feed-prev").disabled = FEED.page <= 1;
+        $("feed-next").disabled = FEED.page >= pages;
+    } catch (e) {
+        console.error("detections refresh failed:", e);
+    }
+}
+
+function liveDetection(v) {
+    // Live rows only make sense on the newest page with a matching filter.
+    const suspicious = v.verdict === "suspicious";
+    if (FEED.page === 1 && (!FEED.verdict || FEED.verdict === v.verdict)) {
+        const row = feedRow({
+            timestamp: new Date().toLocaleTimeString([], { hour12: false }),
+            src_ip: v.ip, country: v.country, verdict: v.verdict,
+            confidence: v.confidence, summary: v.summary,
+        });
+        row.classList.add(suspicious ? "is-new-sus" : "is-new");
+        const feed = $("feed");
+        feed.prepend(row);
+        while (feed.children.length > FEED.pageSize) feed.lastChild.remove();
+        $("feed-empty").hidden = true;
+    }
+    mapPing(v.lat, v.lon, suspicious);
+}
+
+$("feed-prev").addEventListener("click", () => {
+    if (FEED.page > 1) { FEED.page--; refreshFeed(); }
+});
+$("feed-next").addEventListener("click", () => { FEED.page++; refreshFeed(); });
+
+const setFilter = (verdict) => {
+    FEED.verdict = verdict; FEED.page = 1;
+    $("feed-all").classList.toggle("is-active", verdict === null);
+    $("feed-sus").classList.toggle("is-active", verdict === "suspicious");
+    refreshFeed();
+};
+$("feed-all").addEventListener("click", () => setFilter(null));
+$("feed-sus").addEventListener("click", () => setFilter("suspicious"));
+
+/* ---------- host health ---------- */
+
+const cpuChart = new Chart($("cpu-chart"), {
+    type: "line",
+    data: { labels: [], datasets: [{
+        label: "CPU %",
+        data: [],
+        borderColor: C.accent,
+        backgroundColor: "rgba(57, 213, 242, 0.08)",
+        borderWidth: 2, fill: true, pointRadius: 0, pointHitRadius: 12, tension: 0.3,
+    }]},
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { display: false },
+            y: { beginAtZero: true, max: 100, grid: { color: C.line },
+                 border: { display: false }, ticks: { maxTicksLimit: 3 } },
+        },
+    },
+});
+
+function setMeter(fillId, valueId, pct) {
+    const fill = $(fillId);
+    fill.style.width = Math.min(100, pct) + "%";
+    fill.classList.toggle("is-warn", pct >= 70 && pct < 90);
+    fill.classList.toggle("is-crit", pct >= 90);
+    $(valueId).textContent = pct.toFixed(0) + "%";
+}
+
+function onMetrics(d) {
+    cpuChart.data.labels.push("");
+    cpuChart.data.datasets[0].data.push(d.cpu_usage);
+    if (cpuChart.data.datasets[0].data.length > 40) {
+        cpuChart.data.labels.shift();
+        cpuChart.data.datasets[0].data.shift();
+    }
+    cpuChart.update("none");
+    setMeter("mem-fill", "mem-value", d.memory_usage || 0);
+    setMeter("disk-fill", "disk-value", d.disk_usage || 0);
+    $("host-meta").textContent =
+        `cpu ${d.cpu_usage}% · ${d.cpu_cores} cores`;
+}
+
+/* ---------- event log ---------- */
+
+const LOG = { page: 1 };
+
+function logRow(entry) {
+    const row = el("div", "log-row");
+    row.appendChild(el("span", "log-time", timeOf(entry.timestamp)));
+    row.appendChild(el("span", "log-text", entry.log));
+    return row;
+}
+
+async function refreshLogs() {
+    try {
+        const res = await fetch("/logs?page=" + LOG.page);
+        const data = await res.json();
+        $("log-list").replaceChildren(...(Array.isArray(data) ? data : []).map(logRow));
+        $("log-page").textContent = "page " + LOG.page;
+        $("log-prev").disabled = LOG.page <= 1;
+        $("log-next").disabled = !Array.isArray(data) || data.length === 0;
+    } catch (e) {
+        console.error("logs refresh failed:", e);
+    }
+}
+
+$("log-prev").addEventListener("click", () => {
+    if (LOG.page > 1) { LOG.page--; refreshLogs(); }
+});
+$("log-next").addEventListener("click", () => { LOG.page++; refreshLogs(); });
+
+/* ---------- triage chat ---------- */
+
+function chatAppend(node) {
+    const box = $("chat-box");
+    const hint = box.querySelector(".chat-hint");
+    if (hint) hint.remove();
+    box.appendChild(node);
+    box.scrollTop = box.scrollHeight;
+}
+
+/* escape, then allow only **bold** back in */
+function renderReply(text) {
+    const span = el("div", "chat-msg chat-msg-ai");
+    const parts = String(text).split(/\*\*(.+?)\*\*/g);
+    parts.forEach((part, i) => {
+        if (i % 2) span.appendChild(el("strong", null, part));
+        else span.appendChild(document.createTextNode(part));
+    });
+    return span;
+}
+
+async function sendChat() {
+    const input = $("chat-input");
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = "";
+    chatAppend(el("div", "chat-msg chat-msg-user", message));
+    const loading = el("div", "chat-loading", "analyzing…");
+    chatAppend(loading);
+    try {
+        const res = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message }),
+        });
+        const data = await res.json();
+        loading.remove();
+        chatAppend(renderReply(data.response || data.message || "No response received."));
+    } catch (e) {
+        loading.remove();
+        chatAppend(el("div", "chat-msg chat-msg-err",
+            "The assistant is unreachable. Check that the backend is running."));
+    }
+}
+
+$("chat-send").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendChat();
+});
+
+/* ---------- sockets ---------- */
+
+const socket = io();
+socket.on("connect", () => setLive("live", "sensor live"));
+socket.on("disconnect", () => setLive("down", "disconnected"));
+socket.on("update_metrics", onMetrics);
+socket.on("cnn_verdict", liveDetection);
+socket.on("new_log", (entry) => {
+    if (LOG.page !== 1) return;
+    const list = $("log-list");
+    list.prepend(logRow(entry));
+    while (list.children.length > 50) list.lastChild.remove();
+});
+
+/* ---------- boot ---------- */
+
+initMap().then(refreshMap);
+refreshStats();
+refreshGeo();
+refreshFeed();
+refreshLogs();
+setInterval(refreshStats, 2000);
+setInterval(() => { refreshMap(); refreshGeo(); }, 10000);
