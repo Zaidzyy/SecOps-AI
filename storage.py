@@ -21,16 +21,18 @@ import config
 # --- write side -------------------------------------------------------------
 
 SQL_INSERT_TELEMETRY = """
-    INSERT INTO telemetry (ip, country, lat, lon, summary, blacklisted, attacks, reports)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO telemetry (ip, country, lat, lon, summary, blacklisted, attacks,
+                           reports, abuse_score, rep_source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 SQL_INSERT_DETECTION = """
     INSERT INTO detections
         (src_ip, dst_ip, src_port, dst_port, proto, cnn_verdict, cnn_confidence,
          country, lat, lon, duration_s, fwd_packets, bwd_packets, fwd_bytes,
-         bwd_bytes, summary, attack_family, technique_id, technique_name, tactic)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         bwd_bytes, summary, attack_family, technique_id, technique_name, tactic,
+         abuse_score, rep_reports, rep_source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # Verdict severity, worst last. The threat map colours a point by the worst
@@ -42,29 +44,36 @@ BASE_VERDICT = "normal"
 
 
 def write_telemetry(writer, *, ip, country, lat, lon, summary, blacklisted,
-                    attacks, reports) -> bool:
-    """Route one enriched packet to the telemetry table."""
+                    attacks, reports, abuse_score=None, rep_source=None) -> bool:
+    """Route one enriched packet to the telemetry table. abuse_score/rep_source
+    are the third-party reputation columns (NULL when the source has none)."""
     return writer.submit(SQL_INSERT_TELEMETRY,
                          (ip, country, lat, lon, summary, blacklisted,
-                          attacks, reports))
+                          attacks, reports, abuse_score, rep_source))
 
 
 def write_detection(writer, *, src_ip, dst_ip, src_port, dst_port, proto,
                     verdict, confidence, country, lat, lon, duration_s,
                     fwd_packets, bwd_packets, fwd_bytes, bwd_bytes, summary,
                     attack_family=None, technique_id=None, technique_name=None,
-                    tactic=None) -> bool:
+                    tactic=None, abuse_score=None, rep_reports=None,
+                    rep_source=None) -> bool:
     """Route one classified flow verdict to the detections table.
 
     The four attribution fields default to NULL: "normal" verdicts never carry
     them, and a flagged flow the Stage-2 attributor declined to name serves as
     "technique unattributed" (NULL technique_id) rather than a forced guess.
+
+    The three reputation fields are the source IP's THIRD-PARTY reputation at
+    classification time (Feature 4) -- stored beside, never mixed into, the
+    detector's verdict/confidence.
     """
     return writer.submit(SQL_INSERT_DETECTION,
                          (src_ip, dst_ip, src_port, dst_port, proto, verdict,
                           confidence, country, lat, lon, duration_s, fwd_packets,
                           bwd_packets, fwd_bytes, bwd_bytes, summary,
-                          attack_family, technique_id, technique_name, tactic))
+                          attack_family, technique_id, technique_name, tactic,
+                          abuse_score, rep_reports, rep_source))
 
 
 # --- read side --------------------------------------------------------------
@@ -88,7 +97,8 @@ def clamp_page(value) -> int:
 DETECTION_COLUMNS = """
     id, src_ip, dst_ip, src_port, dst_port, proto, cnn_verdict, cnn_confidence,
     country, lat, lon, duration_s, fwd_packets, bwd_packets, fwd_bytes, bwd_bytes,
-    summary, attack_family, technique_id, technique_name, tactic, timestamp
+    summary, attack_family, technique_id, technique_name, tactic,
+    abuse_score, rep_reports, rep_source, timestamp
 """
 
 
@@ -134,7 +144,7 @@ def fetch_telemetry(conn: sqlite3.Connection, page: int = 1,
     total = conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0]
     rows = conn.execute("""
         SELECT id, ip, country, lat, lon, summary, blacklisted, attacks, reports,
-               timestamp
+               abuse_score, rep_source, timestamp
         FROM telemetry
         ORDER BY timestamp DESC, id DESC
         LIMIT ? OFFSET ?

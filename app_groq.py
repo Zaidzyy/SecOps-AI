@@ -413,7 +413,9 @@ def _record_packet_telemetry(packet):
     storage.write_telemetry(
         db_writer, ip=ip, country=country, lat=geo["lat"], lon=geo["lon"],
         summary=summary, blacklisted="Yes" if is_blacklisted else "No",
-        attacks=reputation["attacks"], reports=reputation["reports"])
+        attacks=reputation["attacks"], reports=reputation["reports"],
+        abuse_score=reputation.get("abuse_score"),
+        rep_source=reputation.get("source"))
 
     log_message = (f"Network Packet Ingested from source address: {ip} ({country}) "
                    f"- Target Infrastructure Blacklisted State: {is_blacklisted}")
@@ -439,6 +441,11 @@ def _handle_completed_flow(flow):
     # so the map gets coordinates without a second round trip.
     geo = enrichment.get_ip_geo(src)
     country = geo["country"]
+    # Third-party reputation for the source (Feature 4). Same TTL cache as the
+    # telemetry path, so this is normally a hit, never a second HTTP call.
+    # Stored beside the verdict, never blended into it: cnn_verdict is OUR
+    # detector's opinion, abuse_score is AbuseIPDB's.
+    reputation = enrichment.check_ip_reputation(src)
 
     total_pkts = flow.fwd_packets + flow.bwd_packets
     summary = (f"Flow {flow.src_ip}:{flow.src_port} -> {flow.dst_ip}:{flow.dst_port} "
@@ -457,7 +464,10 @@ def _handle_completed_flow(flow):
         attack_family=result.get("attack_family"),
         technique_id=result.get("technique_id"),
         technique_name=result.get("technique_name"),
-        tactic=result.get("tactic"))
+        tactic=result.get("tactic"),
+        abuse_score=reputation.get("abuse_score"),
+        rep_reports=reputation.get("reports"),
+        rep_source=reputation.get("source"))
 
     technique_note = ""
     if verdict == "suspicious":
@@ -473,6 +483,9 @@ def _handle_completed_flow(flow):
         "technique_id": result.get("technique_id"),
         "technique_name": result.get("technique_name"),
         "tactic": result.get("tactic"),
+        "abuse_score": reputation.get("abuse_score"),
+        "rep_reports": reputation.get("reports"),
+        "rep_source": reputation.get("source"),
     })
 
 

@@ -296,6 +296,7 @@ it is labelled AI-generated advisory throughout.
    ```env
    GROQ_API_KEY=your_groq_api_key_here
    SECOPS_SECRET_KEY=paste_a_long_random_hex_string_here
+   SECOPS_ABUSEIPDB_KEY=your_abuseipdb_key_here   # optional — see below
    ```
 
    - **GROQ_API_KEY**: Get your API key from `console.groq.com`
@@ -304,6 +305,9 @@ it is labelled AI-generated advisory throughout.
      ```bash
      python -c "import secrets; print(secrets.token_hex(32))"
      ```
+   - **SECOPS_ABUSEIPDB_KEY** (optional): enables the richer AbuseIPDB
+     reputation source — see **IP reputation sources** below. Without it,
+     everything works on the keyless blocklist.de path.
 
    Optional overrides (defaults in parentheses): `SECOPS_HOST` (`127.0.0.1`),
    `SECOPS_PORT` (`5000`), `SECOPS_ALLOWED_ORIGINS` (the local origin),
@@ -404,6 +408,35 @@ something smaller.
 
 - **Real-time monitoring**: Receive live metrics, network activity, and AI-generated alerts in real-time.
 - **Customizable API**: Integrate with Groq to leverage high-performance AI analysis.
+
+## IP reputation sources
+
+Every public source IP is enriched with a reputation lookup (TTL-cached in
+`enrichment.py`). Two sources, chosen by configuration:
+
+- **AbuseIPDB** (`/api/v2/check`) — used when `SECOPS_ABUSEIPDB_KEY` is set.
+  Returns the **abuse confidence score (0–100)**, total report count, usage
+  type, and ISP. The score and its report count are persisted on telemetry
+  and detections (`abuse_score`, `rep_reports`, `rep_source`), shown as an
+  amber `rep NN` chip in the detection feed, and fed to the triage agent's
+  `ip_reputation` tool. Scores at or above 50 also set the pipeline's
+  existing `blacklisted` boolean (`config.ABUSE_SCORE_FLAG_THRESHOLD`).
+- **blocklist.de** — the keyless fallback. A fresh clone with no key runs
+  entirely on this path; nothing requires AbuseIPDB.
+
+**Free tier & caching**: AbuseIPDB's free tier allows 1000 checks/day
+(resets 00:00 UTC). The reputation cache (`REP_CACHE_TTL_S`, 15 min) plus
+single-flighting guarantees **one lookup per unique public IP per window,
+no matter the packet rate** — a flood cannot burn the quota. A 429 (tier
+exhausted) falls back to blocklist.de for that lookup; if every source
+fails, the IP is marked reputation *unknown* (and the failure is cached,
+so a down upstream is retried once per window, not per packet).
+
+**Honesty rule**: the abuse score is a **third-party reputation signal**,
+stored and rendered separately from `cnn_verdict` — the ML detector's
+opinion. The UI styles them differently on purpose, and the triage agent is
+told which is which. A high reputation score never makes a flow "suspicious"
+by itself, and a clean score never vouches for one.
 
 ## Data Model & Read API
 

@@ -51,7 +51,11 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def net(monkeypatch):
-    """Stub the network and count calls per URL kind."""
+    """Stub the network and count calls per URL kind. Forces the blocklist.de
+    reputation path: a developer machine with SECOPS_ABUSEIPDB_KEY in its
+    environment must not flip which source these tests exercise (the AbuseIPDB
+    path has its own tests in test_reputation.py)."""
+    monkeypatch.delenv("SECOPS_ABUSEIPDB_KEY", raising=False)
     calls = {"geo": 0, "rep": 0}
 
     class Resp:
@@ -95,7 +99,11 @@ def test_distinct_ips_are_cached_separately(clock, net):
 def test_reputation_cached_and_parsed(clock, net):
     r1 = enrichment.check_ip_reputation(PUBLIC_IP)
     r2 = enrichment.check_ip_reputation(PUBLIC_IP)
-    assert r1 == {"blacklisted": True, "attacks": 3, "reports": 7}
+    # Feature 4 extended the record with the third-party reputation fields;
+    # the blocklist.de path carries them as None/its own source label.
+    assert r1 == {"blacklisted": True, "attacks": 3, "reports": 7,
+                  "abuse_score": None, "usage_type": None, "isp": None,
+                  "source": "blocklist.de"}
     assert r2 == r1
     assert net["rep"] == 1
 

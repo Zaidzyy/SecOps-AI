@@ -121,9 +121,18 @@ def _tool_ip_reputation(conn, args) -> dict:
     rep = enrichment.check_ip_reputation(ip)
     geo = enrichment.get_ip_geo(ip)
     out = {"ip": ip, "location": geo["country"], **rep}
+    # Honesty notes, per source (Feature 4): the model must know what kind of
+    # signal it is looking at, and that "no data" is not "clean".
     if not enrichment.is_enrichable(ip):
         out["note"] = ("private/non-routable address: no external reputation "
                        "data exists for it")
+    elif rep.get("source") == "unknown":
+        out["note"] = ("reputation lookup failed for this IP; treat its "
+                       "reputation as unknown, not clean")
+    elif rep.get("abuse_score") is not None:
+        out["note"] = ("abuse_score is AbuseIPDB's abuseConfidenceScore "
+                       "(0-100), a third-party reputation signal -- distinct "
+                       "from this system's ML verdict")
     elif not rep["blacklisted"]:
         out["note"] = "no blacklist reports found for this IP"
     return out

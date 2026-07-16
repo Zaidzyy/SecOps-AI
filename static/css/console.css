@@ -475,6 +475,19 @@ button { font: inherit; cursor: pointer; }
     font-family: var(--font-mono); font-size: 10px; color: var(--ink3);
 }
 
+/* --- third-party reputation indicator (Feature 4: AbuseIPDB) ---
+   Amber, not the verdict red/cyan: reputation is a different kind of signal
+   than the detector's verdict and must never read as the same thing. */
+
+.feed-rep {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em;
+    margin-left: 8px; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid rgba(232, 185, 62, 0.45); color: var(--warn);
+    vertical-align: 1px; cursor: default;
+}
+
+.feed-rep-high { background: rgba(232, 185, 62, 0.14); font-weight: 700; }
+
 /* --- chat citations (Feature 3: BM25-retrieved detections) --- */
 
 .chat-citations {

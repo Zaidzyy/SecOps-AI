@@ -138,6 +138,23 @@ TRIAGE_COLUMNS = [
     ("triage_at", "DATETIME"),
 ]
 
+# Migration 0004: third-party reputation columns (Feature 4). abuse_score is
+# AbuseIPDB's abuseConfidenceScore (0-100) -- a REPUTATION signal, kept in its
+# own columns precisely so it can never be conflated with cnn_verdict, the ML
+# detector's opinion. NULLable throughout: rows written with no AbuseIPDB key
+# (blocklist.de path, or no lookup at all) legitimately have no score, and
+# rep_source records which service actually answered.
+REPUTATION_MIGRATION = "0004_reputation_scores"
+REPUTATION_TELEMETRY_COLUMNS = [
+    ("abuse_score", "INTEGER"),
+    ("rep_source", "TEXT"),
+]
+REPUTATION_DETECTION_COLUMNS = [
+    ("abuse_score", "INTEGER"),
+    ("rep_reports", "INTEGER"),
+    ("rep_source", "TEXT"),
+]
+
 
 # --- helpers ----------------------------------------------------------------
 
@@ -273,5 +290,17 @@ def migrate(conn: sqlite3.Connection, verbose: bool = False) -> dict:
         if verbose:
             print(f"[OK] Migration {TRIAGE_MIGRATION}: detections now carries "
                   f"{', '.join(n for n, _ in TRIAGE_COLUMNS)}.")
+
+    if not applied(conn, REPUTATION_MIGRATION):
+        for table, columns in (("telemetry", REPUTATION_TELEMETRY_COLUMNS),
+                               ("detections", REPUTATION_DETECTION_COLUMNS)):
+            existing = _columns(conn, table)
+            for name, sqltype in columns:
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sqltype}")
+        _mark_applied(conn, REPUTATION_MIGRATION)
+        if verbose:
+            print(f"[OK] Migration {REPUTATION_MIGRATION}: telemetry + detections "
+                  f"now carry third-party reputation columns.")
     conn.commit()
     return counts

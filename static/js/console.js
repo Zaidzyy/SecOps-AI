@@ -335,6 +335,18 @@ function feedRow(d) {
     const main = el("div", "feed-main");
     const ipLine = el("div");
     ipLine.appendChild(el("span", "feed-ip", d.src_ip || d.ip || "?"));
+    // Third-party reputation indicator (Feature 4): AbuseIPDB confidence,
+    // shown as "rep NN" — deliberately NOT the verdict badge's styling, so a
+    // reputation signal is never mistaken for the detector's opinion.
+    if (typeof d.abuse_score === "number" && d.abuse_score > 0) {
+        const rep = el("span",
+            "feed-rep" + (d.abuse_score >= 75 ? " feed-rep-high" : ""),
+            `rep ${d.abuse_score}`);
+        rep.title = `AbuseIPDB abuse confidence ${d.abuse_score}/100` +
+            (d.rep_reports ? ` · ${d.rep_reports} reports` : "") +
+            ` · third-party reputation signal, not the detector's verdict`;
+        ipLine.appendChild(rep);
+    }
     main.appendChild(ipLine);
     main.appendChild(el("div", "feed-geo", cleanGeo(d.country)));
     if (d.summary) main.title = d.summary;
@@ -493,6 +505,7 @@ function liveDetection(v) {
             confidence: v.confidence, summary: v.summary,
             technique_id: v.technique_id, technique_name: v.technique_name,
             tactic: v.tactic,
+            abuse_score: v.abuse_score, rep_reports: v.rep_reports,
         });
         row.classList.add(suspicious ? "is-new-sus" : "is-new");
         const feed = $("feed");

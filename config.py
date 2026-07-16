@@ -111,6 +111,25 @@ WRITE_QUEUE_MAX = 50000
 DB_BATCH_SIZE = 200            # flush when this many rows are pending...
 DB_FLUSH_INTERVAL_S = 0.5      # ...or this long has passed, whichever is first.
 
+# --- AbuseIPDB reputation (Feature 4) ---
+# Optional richer reputation source. The API key (SECOPS_ABUSEIPDB_KEY) is
+# read at CALL time in enrichment.py, not here: this module imports before
+# app_groq's load_dotenv() runs, so an import-time read would miss a key that
+# lives in .env (same reasoning as GROQ_API_KEY in triage.py). No key means
+# the existing blocklist.de path -- clone-and-run needs no key.
+#
+# Free tier: 1000 checks/day, resets 00:00 UTC. REP_CACHE_TTL_S plus the
+# single-flight cache below keep usage far under that: one call per unique
+# public IP per 15-minute window, no matter how many packets it sends.
+ABUSEIPDB_MAX_AGE_DAYS = 90
+
+# abuseConfidenceScore (0-100) at or above this counts as "blacklisted" for
+# the pipeline's existing boolean (telemetry flag, edge-alert trigger).
+# AbuseIPDB's own guidance treats 75+ as high confidence; 50 is a deliberate
+# middle ground for an alerting boolean. The raw score is persisted alongside,
+# so the threshold never destroys information.
+ABUSE_SCORE_FLAG_THRESHOLD = 50
+
 # --- Enrichment caches ---
 # Each IP hits the network at most once per TTL window. Geo data is effectively
 # static, so it can be cached far longer than reputation, which changes.

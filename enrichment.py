@@ -20,6 +20,7 @@ lock -- holding it across the network would serialize every worker.
 from __future__ import annotations
 
 import ipaddress
+import os
 import threading
 
 import requests
@@ -32,7 +33,20 @@ EXCLUDED_IPS = {"144.76.114.3", "159.89.102.253"}
 
 PRIVATE_LABEL = "Internal/Private Range (Non-Routable)"
 UNKNOWN_LABEL = "Resolution Timeout/Error"
-NO_REPUTATION = {"blacklisted": False, "attacks": 0, "reports": 0}
+
+# Reputation record shape (Feature 4). One shape for every source, so callers
+# never branch: blocklist.de rows carry abuse_score=None, AbuseIPDB rows carry
+# attacks=0 (that count is blocklist.de's concept and pretending otherwise
+# would be dishonest). `source` says which service actually answered:
+#   "abuseipdb" | "blocklist.de" -- a real lookup
+#   "none"      -- never checked (private/excluded address)
+#   "unknown"   -- checked, but every source failed (marked, not invented)
+# The abuse_score is a THIRD-PARTY reputation signal (AbuseIPDB's
+# abuseConfidenceScore, 0-100); it is never the ML detector's verdict.
+NO_REPUTATION = {"blacklisted": False, "attacks": 0, "reports": 0,
+                 "abuse_score": None, "usage_type": None, "isp": None,
+                 "source": "none"}
+REPUTATION_UNKNOWN = {**NO_REPUTATION, "source": "unknown"}
 
 # Geo results are dicts, not strings: the threat map needs coordinates, and
 # lat/lon arrive in the SAME geolocation-db.com response the country came from --
@@ -158,15 +172,69 @@ def _fetch_geo(ip: str) -> dict:
     }
 
 
-def _fetch_reputation(ip: str) -> dict:
+ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
+
+
+def _fetch_reputation_abuseipdb(ip: str, key: str) -> dict:
+    """One AbuseIPDB /check. Raises on ANY non-200 -- including 429, which is
+    the free tier saying no (1000 checks/day) -- so the dispatcher can fall
+    back to blocklist.de instead of losing the lookup entirely."""
+    r = requests.get(ABUSEIPDB_URL,
+                     params={"ipAddress": ip,
+                             "maxAgeInDays": config.ABUSEIPDB_MAX_AGE_DAYS},
+                     headers={"Key": key, "Accept": "application/json"},
+                     timeout=config.ENRICHMENT_HTTP_TIMEOUT_S)
+    if r.status_code != 200:
+        raise RuntimeError(f"AbuseIPDB HTTP {r.status_code}")
+    d = r.json().get("data") or {}
+    score = int(d.get("abuseConfidenceScore") or 0)
+    return {
+        "blacklisted": score >= config.ABUSE_SCORE_FLAG_THRESHOLD,
+        "attacks": 0,                      # blocklist.de's field; no equivalent here
+        "reports": int(d.get("totalReports") or 0),
+        "abuse_score": score,
+        "usage_type": d.get("usageType"),
+        "isp": d.get("isp"),
+        "source": "abuseipdb",
+    }
+
+
+def _fetch_reputation_blocklist(ip: str) -> dict:
     r = requests.get(f"http://api.blocklist.de/api.php?ip={ip}&format=json",
                      timeout=config.ENRICHMENT_HTTP_TIMEOUT_S)
     if r.status_code != 200:
-        return dict(NO_REPUTATION)
+        # "we could not check" is not "clean" -- mark it unknown.
+        return dict(REPUTATION_UNKNOWN)
     d = r.json()
     attacks = int(d.get("attacks", 0) or 0)
     reports = int(d.get("reports", 0) or 0)
-    return {"blacklisted": attacks > 0, "attacks": attacks, "reports": reports}
+    return {"blacklisted": attacks > 0, "attacks": attacks, "reports": reports,
+            "abuse_score": None, "usage_type": None, "isp": None,
+            "source": "blocklist.de"}
+
+
+def _fetch_reputation(ip: str) -> dict:
+    """Source dispatch: AbuseIPDB when a key is configured, else blocklist.de.
+
+    The key is read per call, not at import (load_dotenv in app_groq runs
+    after this module is imported), and its absence is a supported
+    configuration -- clone-and-run works with no key at all.
+
+    An AbuseIPDB failure (429 when the daily tier is spent, network trouble,
+    a malformed response) falls back to blocklist.de for THIS lookup rather
+    than answering "unknown" while a working source remains. If blocklist.de
+    also fails, _cached_lookup catches and returns REPUTATION_UNKNOWN -- and
+    caches it, so a failing upstream is retried once per TTL window, not once
+    per packet.
+    """
+    key = os.getenv("SECOPS_ABUSEIPDB_KEY")
+    if key:
+        try:
+            return _fetch_reputation_abuseipdb(ip, key)
+        except Exception as e:
+            print(f"[WARN] AbuseIPDB lookup failed for {ip} ({e}); "
+                  f"falling back to blocklist.de")
+    return _fetch_reputation_blocklist(ip)
 
 
 def get_ip_geo(ip: str) -> dict:
@@ -188,10 +256,13 @@ def get_ip_country(ip: str) -> str:
 
 
 def check_ip_reputation(ip: str) -> dict:
-    """{"blacklisted": bool, "attacks": int, "reports": int}. Cached for
-    REP_CACHE_TTL_S. Unlike the old version this NEVER writes to the database --
+    """Reputation record for an IP -- see NO_REPUTATION above for the shape
+    and the source semantics. AbuseIPDB when SECOPS_ABUSEIPDB_KEY is set,
+    blocklist.de otherwise. Cached for REP_CACHE_TTL_S and single-flighted:
+    one lookup per IP per window is also what keeps AbuseIPDB's 1000/day free
+    tier out of reach of a packet flood. NEVER writes to the database --
     the cache is a cache, not a table."""
     if not is_enrichable(ip):
         return dict(NO_REPUTATION)
     return dict(_cached_lookup(_rep_cache, "rep", ip, _fetch_reputation,
-                               dict(NO_REPUTATION)))
+                               dict(REPUTATION_UNKNOWN)))
