@@ -101,9 +101,16 @@ class Flow:
         return (self.src_ip, self.dst_ip, self.src_port, self.dst_port, self.proto)
 
 
-def _canonical_key(m: PacketMeta) -> tuple:
+def canonical_key(m: PacketMeta) -> tuple:
     """Direction-independent flow key: the two endpoints are sorted so both
-    directions hash to the same flow."""
+    directions hash to the same flow.
+
+    Public because the ingestion pipeline routes on it: packets are sharded by
+    hash(canonical_key) so that both directions of a flow -- and therefore every
+    packet of it -- are handled in order by one worker. Direction-independence is
+    what makes that work; a key that distinguished A->B from B->A would split a
+    conversation across two shards and reintroduce the race it prevents.
+    """
     a = (m.src_ip, m.src_port)
     b = (m.dst_ip, m.dst_port)
     lo, hi = (a, b) if a <= b else (b, a)
@@ -122,7 +129,7 @@ class FlowTracker:
         """Ingest one packet. Returns any flows completed as a result of this
         packet (TCP close) or of idle/active timeouts that expired alongside it."""
         completed: list[Flow] = []
-        key = _canonical_key(m)
+        key = canonical_key(m)
         flow = self._flows.get(key)
         if flow is None:
             flow = Flow(src_ip=m.src_ip, dst_ip=m.dst_ip,

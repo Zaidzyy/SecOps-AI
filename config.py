@@ -62,16 +62,22 @@ FEATURE_ORDER = [
 ]
 
 # --- Ingestion pipeline (Phase 2) ---
-# 3 stages: sniff thread -> capture_queue -> N enrichment workers -> write_queue
-# -> ONE batched DB writer. See pipeline.py.
+# 3 stages: sniff thread -> shard by flow key -> N enrichment workers (one per
+# shard) -> write_queue -> ONE batched DB writer. See pipeline.py.
 
-# Bounded so a slow consumer can never grow memory without limit. On overflow we
-# DROP and count rather than block: a blocked sniffer stops seeing ALL traffic,
-# which is strictly worse than losing some packets. Sized to absorb bursts.
+# TOTAL in-flight packets across all shards (each shard gets
+# CAPTURE_QUEUE_MAX // ENRICHMENT_WORKERS). Bounded so a slow consumer can never
+# grow memory without limit. On overflow we DROP and count rather than block: a
+# blocked sniffer stops seeing ALL traffic, which is strictly worse than losing
+# some packets. Sized to absorb bursts.
 CAPTURE_QUEUE_MAX = 20000
 
 # Enrichment is I/O-bound (geo/reputation HTTP on cache misses), so more threads
 # than cores is correct here; they spend most of their time waiting.
+#
+# This is ALSO the shard count: one worker per shard, since a shard's FlowTracker
+# is owned by exactly one thread. Changing it changes how flows distribute across
+# workers, not which worker any given flow's packets agree on.
 ENRICHMENT_WORKERS = 8
 
 # The DB writer is the only thread allowed to write SQLite. SQLite serializes

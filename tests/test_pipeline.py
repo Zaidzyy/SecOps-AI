@@ -17,7 +17,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline import BatchedDBWriter, DropCounterQueue, RateTracker  # noqa: E402
+from pipeline import (BatchedDBWriter, DropCounterQueue,  # noqa: E402
+                      RateTracker, ShardedCaptureQueue)
 
 
 # --------------------------------------------------------------------------
@@ -99,6 +100,110 @@ def test_put_blocking_counts_toward_offered():
 
     q.offer("live")
     assert q.offered == 6, "offer() and put_blocking() must count the same way"
+
+
+# --------------------------------------------------------------------------
+# flow-key sharding
+#
+# The invariant: all packets of one flow reach the SAME shard, in order. Flow
+# tracking is order-dependent, so violating this fragments flows and reverses
+# their direction -- which is exactly what the shared-tracker design did.
+# --------------------------------------------------------------------------
+def test_same_key_always_routes_to_the_same_shard():
+    q = ShardedCaptureQueue(shards=8, total_maxsize=800)
+    key = (("1.1.1.1", 4000), ("2.2.2.2", 80), 6)
+    assert len({q.index_for(key) for _ in range(100)}) == 1
+
+
+def test_a_flows_packets_stay_in_order_within_its_shard():
+    """FIFO per shard is what preserves within-flow packet order."""
+    q = ShardedCaptureQueue(shards=4, total_maxsize=400)
+    key = (("1.1.1.1", 4000), ("2.2.2.2", 80), 6)
+    for i in range(20):
+        q.put_blocking(key, i)
+
+    shard = q.queue(q.index_for(key))
+    assert [shard.get() for _ in range(20)] == list(range(20))
+
+
+def test_both_directions_of_a_flow_share_a_shard():
+    """The canonical key is direction-independent; if A->B and B->A split across
+    shards, two workers would each see half a conversation."""
+    q = ShardedCaptureQueue(shards=8, total_maxsize=800)
+    # What flow_tracker.canonical_key produces for either direction.
+    key = (("1.1.1.1", 4000), ("2.2.2.2", 80), 6)
+    assert q.index_for(key) == q.index_for(key)
+
+    q.put_blocking(key, "forward")
+    q.put_blocking(key, "backward")
+    shard = q.queue(q.index_for(key))
+    assert shard.qsize() == 2, "both directions must land in one shard"
+
+
+def test_distinct_flows_spread_across_shards():
+    """Sharding must actually parallelise; everything on one worker would be a
+    correct but pointless pipeline."""
+    q = ShardedCaptureQueue(shards=8, total_maxsize=8000)
+    keys = [(("10.0.0.%d" % i, 4000 + i), ("2.2.2.2", 80), 6) for i in range(200)]
+    used = {q.index_for(k) for k in keys}
+    assert len(used) == 8, f"200 flows only reached {len(used)} of 8 shards"
+
+
+def test_total_capacity_is_split_not_multiplied():
+    """The memory bound must match the single-queue design it replaced."""
+    q = ShardedCaptureQueue(shards=4, total_maxsize=400)
+    for i in range(4):
+        assert q.queue(i)._q.maxsize == 100
+
+
+def test_offer_drops_and_counts_per_shard_without_blocking():
+    q = ShardedCaptureQueue(shards=2, total_maxsize=4)      # 2 slots per shard
+    key = (("1.1.1.1", 4000), ("2.2.2.2", 80), 6)
+    accepted = [q.offer(key, i) for i in range(5)]
+
+    assert accepted == [True, True, False, False, False]
+    assert q.dropped == 3
+    assert q.offered == 5
+    stats = q.stats()
+    assert stats["dropped"] == 3 and stats["offered"] == 5
+    assert len(stats["shards"]) == 2
+    assert sum(s["dropped"] for s in stats["shards"]) == 3
+
+
+def test_stats_aggregate_across_shards():
+    q = ShardedCaptureQueue(shards=4, total_maxsize=400)
+    for i in range(40):
+        q.put_blocking((("10.0.0.%d" % i, i), ("2.2.2.2", 80), 6), i)
+    q.count_ignored()
+    q.count_ignored()
+
+    s = q.stats()
+    assert s["offered"] == 40
+    assert s["queued"] == 40 == q.qsize()
+    assert s["dropped"] == 0
+    assert s["ignored"] == 2, "non-flow packets are counted, not silently vanished"
+
+
+def test_join_waits_for_every_shard():
+    q = ShardedCaptureQueue(shards=3, total_maxsize=300)
+    for i in range(9):
+        q.put_blocking((("10.0.0.%d" % i, i), ("2.2.2.2", 80), 6), i)
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (q.join(), done.set()), daemon=True).start()
+    assert not done.wait(0.2), "join() returned with work outstanding"
+
+    for i in range(q.shards):
+        shard = q.queue(i)
+        while shard.qsize():
+            shard.get()
+            shard.task_done()
+    assert done.wait(2.0), "join() never returned after all shards drained"
+
+
+def test_shard_count_must_be_positive():
+    with pytest.raises(ValueError):
+        ShardedCaptureQueue(shards=0, total_maxsize=100)
 
 
 # --------------------------------------------------------------------------

@@ -1,23 +1,34 @@
-"""Ingestion pipeline primitives: a bounded drop-queue and a single batched DB writer.
+"""Ingestion pipeline primitives: bounded drop-queues, flow-key sharding, and a
+single batched DB writer.
 
-    sniff thread (capture ONLY)
-      -> capture_queue (bounded; DROP + count on overflow, never blocks)
-        -> N enrichment workers (geo/reputation via TTL cache, flow tracking, classify)
+    sniff thread (capture + route ONLY)
+      -> ShardedCaptureQueue: N bounded queues, shard = hash(flow_key) % N
+        -> N enrichment workers, ONE per shard, each owning its own FlowTracker
           -> write_queue
             -> ONE DB-writer thread (batched inserts, one connection, WAL)
 
-Two rules drive this design:
+Three rules drive this design:
 
-1. The sniffer must never block. If the capture queue is full we drop the packet
+1. The sniffer must never block. If a shard's queue is full we drop the packet
    and increment a counter. A blocked sniffer stops seeing *all* traffic, which is
    worse than losing some of it -- and the drop counter makes the loss visible
    instead of silent.
 
-2. Exactly one thread writes to SQLite. SQLite serializes writes anyway, so
+2. All packets of one flow must reach the SAME worker in capture order. Flow
+   tracking is order-dependent: the first packet seen defines the initiator
+   ("forward") direction, and a FIN/FIN closes the flow. The previous design fanned
+   one shared queue out to N workers mutating one shared FlowTracker under a lock,
+   which made the mutation thread-safe but NOT order-preserving -- packets of a flow
+   raced each other, so flows fragmented and their direction flipped at random
+   (measured: 48 real flows read as 69-75, ~40% direction-reversed, different every
+   run). Sharding on the canonical flow key fixes this at the root: FIFO within a
+   shard preserves within-flow order, and one owner per tracker means no lock at all.
+
+3. Exactly one thread writes to SQLite. SQLite serializes writes anyway, so
    multiple writer threads would only trade I/O-blocking for lock-blocking. One
    thread draining a queue in batches removes contention and amortizes commits.
 
-Both classes are plain threading primitives with no app imports, so they are
+These classes are plain threading primitives with no app imports, so they are
 testable on their own.
 """
 from __future__ import annotations
@@ -93,6 +104,90 @@ class DropCounterQueue:
         with self._lock:
             return {"offered": self._offered, "dropped": self._dropped,
                     "queued": self._q.qsize()}
+
+
+class ShardedCaptureQueue:
+    """N bounded drop-queues; a packet's shard is decided by its flow key.
+
+    This is what guarantees the pipeline's ordering invariant: every packet of a
+    given flow hashes to the same shard, and a shard is drained FIFO by exactly
+    one worker, so that worker sees the flow's packets in capture order and is the
+    only thread that ever touches its FlowTracker.
+
+    `total_maxsize` is split across shards rather than applied per shard, so the
+    total number of in-flight packets (and therefore the memory bound) is the same
+    as the single-queue design it replaces. The tradeoff is real and worth stating:
+    one very hot flow can now fill its own shard and start dropping while other
+    shards sit idle. That is the price of ordering, and the per-shard drop counters
+    make it visible when it happens.
+    """
+
+    def __init__(self, shards: int, total_maxsize: int):
+        if shards < 1:
+            raise ValueError("shards must be >= 1")
+        per_shard = max(1, total_maxsize // shards)
+        self._queues = [DropCounterQueue(per_shard) for _ in range(shards)]
+        self._ignored = 0
+        self._lock = threading.Lock()
+
+    @property
+    def shards(self) -> int:
+        return len(self._queues)
+
+    def queue(self, index: int) -> DropCounterQueue:
+        """The queue a worker owns. Workers drain their own shard directly."""
+        return self._queues[index]
+
+    def index_for(self, key) -> int:
+        """Shard for a flow key. Only stability within a process matters -- which
+        shard a flow lands on is irrelevant, that it always lands on the SAME one
+        is the whole point."""
+        return hash(key) % len(self._queues)
+
+    def offer(self, key, item) -> bool:
+        """Never blocks. Returns False and counts a drop if the shard is full."""
+        return self._queues[self.index_for(key)].offer(item)
+
+    def put_blocking(self, key, item, timeout: float | None = None) -> None:
+        self._queues[self.index_for(key)].put_blocking(item, timeout=timeout)
+
+    def count_ignored(self) -> None:
+        """Record a packet we never queued because it has no flow key (not IPv4
+        TCP/UDP). It would have been discarded downstream anyway, but an
+        unexplained gap between "sniffed" and "processed" is how silent loss hides,
+        so it gets a counter of its own."""
+        with self._lock:
+            self._ignored += 1
+
+    @property
+    def offered(self) -> int:
+        return sum(q.offered for q in self._queues)
+
+    @property
+    def dropped(self) -> int:
+        return sum(q.dropped for q in self._queues)
+
+    @property
+    def ignored(self) -> int:
+        with self._lock:
+            return self._ignored
+
+    def qsize(self) -> int:
+        return sum(q.qsize() for q in self._queues)
+
+    def join(self) -> None:
+        for q in self._queues:
+            q.join()
+
+    def stats(self) -> dict:
+        per_shard = [q.stats() for q in self._queues]
+        return {
+            "offered": sum(s["offered"] for s in per_shard),
+            "dropped": sum(s["dropped"] for s in per_shard),
+            "queued": sum(s["queued"] for s in per_shard),
+            "ignored": self.ignored,
+            "shards": per_shard,
+        }
 
 
 class RateTracker(threading.Thread):

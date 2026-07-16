@@ -11,17 +11,29 @@ The network is STUBBED with a fixed simulated latency, for two reasons:
 SIM_MS defaults to 10ms, which is deliberately conservative -- real geo/reputation
 APIs answer in ~50-200ms, so this UNDERSTATES both the bottleneck and the gain.
 
-Runs in a temp CWD against a throwaway system_metrics.db, so it never touches
-your real one.
+Runs against a throwaway database via SECOPS_DB, so it never touches your real
+one.
 
     python scripts/make_bench_pcap.py /tmp/bench.pcap 300 2
     python scripts/bench_pipeline.py /tmp/bench.pcap 10
 
-Reference numbers on the 4800-packet / 300-public-IP capture at sim_ms=10
-(see git history for the Phase 2 commit):
+Reference numbers on the 4800-packet / 300-public-IP capture at sim_ms=10:
 
-    BEFORE (synchronous per-packet)   38.6 pkt/s   5701 HTTP calls
-    AFTER  (3-stage pipeline)        958.4 pkt/s    602 HTTP calls
+    synchronous per-packet          38.6 pkt/s   5701 HTTP calls
+    3-stage pipeline               958.4 pkt/s    602 HTTP calls
+    flow-sharded, no flow lock     ~920 pkt/s     602 HTTP calls
+
+Compare the first two only as orders of magnitude; they were measured in another
+session. The sharding change was A/B'd on ONE machine back to back, which is the
+only comparison worth trusting:
+
+    3-stage pipeline (shared queue + flow lock)   876.9 / 883.5 / 880.3  -> ~880
+    flow-sharded (one tracker per worker, no lock) 902.6 / 941.5 / 920.9 -> ~920
+
+So sharding costs nothing and gains a little (~4%). Do not expect more from
+removing the lock: this pipeline is bound by simulated HTTP latency, not by lock
+contention -- the lock was a correctness bug, not a throughput one, and the fix
+was worth making at any price up to and including a small regression.
 """
 import os
 import sys
@@ -32,7 +44,11 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PCAP = os.path.abspath(sys.argv[1])
 SIM_MS = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
 
-os.chdir(tempfile.mkdtemp(prefix="secops_bench_"))
+# MUST be set before config is imported: config.DB_PATH is read once at import and
+# is absolute, so (unlike the old relative path) chdir'ing no longer isolates the
+# benchmark from the real system_metrics.db.
+os.environ["SECOPS_DB"] = os.path.join(
+    tempfile.mkdtemp(prefix="secops_bench_"), "bench.db")
 sys.path.insert(0, REPO)
 
 import requests  # noqa: E402

@@ -1,0 +1,453 @@
+Flow Duration,protocol,Total Fwd Packets,Total Backward Packets,Total Length of Fwd Packets,Total Length of Bwd Packets,SYN Flag Count,RST Flag Count,FIN Flag Count,ACK Flag Count,attack_label
+119261118,tcp,2794,2130,12264,7879536,0,0,0,1,Heartbleed
+6,tcp,1,1,0,0,0,0,0,1,BENIGN
+49,tcp,1,1,2,6,0,0,0,0,PortScan
+70,tcp,1,1,2,6,0,0,0,0,PortScan
+62620,tcp,3,4,26,11601,0,0,0,0,DDoS
+85187157,tcp,7,6,344,11595,0,0,0,1,DoS Hulk
+9300900,tcp,9,15,101,188,0,0,0,0,FTP-Patator
+11168005,tcp,2,0,12,0,0,0,0,1,BENIGN
+5049441,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+176,udp,2,2,64,158,0,0,0,0,BENIGN
+172297,tcp,2,3,0,18,0,0,0,1,BENIGN
+7977033,tcp,8,6,56,11601,0,0,0,1,DDoS
+58821,tcp,4,3,210,134,0,0,0,0,Bot
+77,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+53,tcp,1,1,2,6,0,0,0,0,PortScan
+30729,udp,2,2,74,330,0,0,0,0,BENIGN
+5946273,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+109852751,tcp,4,3,532,0,0,0,0,0,DoS Slowhttptest
+5147504,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+257985,tcp,3,4,427,2266,0,0,0,0,BENIGN
+61245177,tcp,17,13,1377,2255,0,0,0,0,BENIGN
+95195,tcp,4,3,208,134,0,0,0,0,Bot
+103594074,tcp,15,3,2541,6,0,0,0,0,DoS slowloris
+41,tcp,1,1,6,6,0,0,0,1,BENIGN
+98430935,tcp,7,7,293,11595,0,0,0,1,DoS Hulk
+100107797,tcp,8,7,331,11595,0,0,0,1,DoS Hulk
+60448,udp,1,1,47,103,0,0,0,0,BENIGN
+5221641,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+62705,udp,2,2,62,190,0,0,0,0,BENIGN
+42,tcp,1,1,2,6,0,0,0,0,PortScan
+75,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+51,tcp,1,1,8,0,1,0,0,1,DoS slowloris
+5069927,tcp,4,4,460,1840,0,0,0,0,Web Attack – Sql Injection
+2104037,tcp,15,21,1301,1033,0,0,0,0,BENIGN
+5906119,tcp,4,4,358,1707,0,0,0,0,Web Attack – XSS
+47141,udp,1,1,56,110,0,0,0,0,BENIGN
+9627701,tcp,9,15,116,188,0,0,0,0,FTP-Patator
+48450959,tcp,7,8,1959,48,1,0,0,1,Infiltration
+52,tcp,1,1,6,6,0,0,0,1,Bot
+118413265,tcp,61,78,3496,116204,0,0,0,0,BENIGN
+204,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+232917,udp,2,2,84,310,0,0,0,0,BENIGN
+119297996,tcp,2782,2089,9368,7882432,0,0,0,1,Heartbleed
+2420580,udp,2,2,94,250,0,0,0,0,BENIGN
+5038618,tcp,4,4,537,1881,0,0,0,0,Web Attack – Sql Injection
+14,tcp,1,1,0,0,0,0,0,1,BENIGN
+61699,udp,1,1,57,281,0,0,0,0,BENIGN
+102995879,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+508,tcp,2,1,0,0,0,0,0,1,Web Attack – Sql Injection
+5192533,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+8786309,tcp,9,15,99,188,0,0,0,0,FTP-Patator
+3553682,tcp,7,5,348,3666,0,0,0,0,BENIGN
+63082777,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+69714525,tcp,20,20,3737,120,1,0,0,1,Infiltration
+11055161,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+5068436,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+5101217,tcp,9,5,388,3083,0,0,0,0,BENIGN
+5942695,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+30942,udp,1,1,52,80,0,0,0,0,BENIGN
+5325067,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+37,tcp,1,1,2,6,0,0,0,0,PortScan
+115185528,tcp,54,90,1026,155775,0,0,0,0,BENIGN
+223,udp,2,2,72,270,0,0,0,0,BENIGN
+8756381,tcp,9,15,109,188,0,0,0,0,FTP-Patator
+24719667,tcp,590,436,7442,1636683,0,0,0,1,Heartbleed
+1960,tcp,1,1,0,0,0,0,0,1,BENIGN
+9792742,tcp,9,15,99,188,0,0,0,0,FTP-Patator
+16,tcp,1,1,2,6,0,0,0,0,PortScan
+119296592,tcp,2797,2006,13712,7878088,0,0,0,1,Heartbleed
+5009041,tcp,4,4,523,530,0,0,0,0,Web Attack – Sql Injection
+5678483,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+5410097,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+5371159,tcp,3,1,0,0,0,0,0,0,BENIGN
+5086516,tcp,5,4,600,4149,0,0,0,0,Web Attack – Sql Injection
+119260295,tcp,2791,2114,13712,7878088,0,0,0,1,Heartbleed
+12558467,tcp,22,33,2008,2745,0,0,0,0,SSH-Patator
+49,tcp,2,2,4,12,0,0,0,0,BENIGN
+82619199,tcp,6,7,432,11595,0,0,1,0,DoS Hulk
+5723985,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+23851,udp,1,1,61,156,0,0,0,0,BENIGN
+63128325,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+1,tcp,2,0,14,0,1,0,0,1,FTP-Patator
+8625336,tcp,9,15,103,188,0,0,0,0,FTP-Patator
+3030854,tcp,5,1,123,46,1,0,0,1,BENIGN
+117388186,tcp,21,17,1741,4825,0,0,0,0,BENIGN
+5512253,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+5654491,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+40,tcp,1,1,6,6,0,0,0,1,Bot
+334178,tcp,6,8,778,5095,0,0,0,0,BENIGN
+25,tcp,1,1,6,6,0,0,0,1,BENIGN
+10652752,tcp,5,4,369,3525,0,0,0,0,DoS GoldenEye
+41654338,tcp,9,7,2018,1014,0,0,0,0,BENIGN
+117845794,tcp,20,17,1386,5892,0,0,0,0,BENIGN
+131788,tcp,2,0,12,0,0,0,0,1,BENIGN
+119299621,tcp,2805,2028,13712,7878627,0,0,0,1,Heartbleed
+14201661,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+121596,udp,4,2,132,184,0,0,0,0,BENIGN
+1197263,tcp,7,6,744,5031,0,0,0,0,BENIGN
+11487371,tcp,21,31,2008,2745,0,0,0,0,SSH-Patator
+11,tcp,1,1,6,6,0,0,0,1,Bot
+11901364,tcp,7,4,329,11632,0,0,0,0,DoS GoldenEye
+6130840,tcp,5,0,30,0,0,0,0,1,DDoS
+5136193,tcp,5,1,117,41,1,0,0,1,BENIGN
+5012479,tcp,6,4,600,4149,0,0,0,0,Web Attack – Sql Injection
+3397368,tcp,4,0,24,0,0,0,0,1,DDoS
+248,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+232,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+5123286,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+50,tcp,1,2,0,0,0,0,0,1,BENIGN
+4042518,tcp,2,1,101,6,0,0,0,1,Infiltration
+3,tcp,2,0,37,0,1,0,0,1,BENIGN
+86038,udp,1,1,48,48,0,0,0,0,BENIGN
+2002978,tcp,5,0,30,0,0,0,0,1,DDoS
+13,tcp,1,1,6,6,0,0,0,1,Bot
+5055127,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+8934609,tcp,9,15,101,188,0,0,0,0,FTP-Patator
+34814825,udp,2,2,103,255,0,0,0,0,BENIGN
+78,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+5381794,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+99651130,tcp,15,15,5108,90,1,0,0,1,Infiltration
+5152473,tcp,9,6,375,4468,0,0,0,0,BENIGN
+60306,udp,1,1,41,143,0,0,0,0,BENIGN
+11480771,tcp,8,5,380,11632,0,0,0,0,DoS GoldenEye
+117701656,tcp,71,80,1758,154393,0,0,0,0,BENIGN
+63115124,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+63138316,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+11872818,tcp,5,5,421,3525,0,0,0,0,DoS GoldenEye
+20,tcp,1,1,0,0,0,0,0,1,BENIGN
+2,tcp,1,1,6,6,0,0,0,1,BENIGN
+9547550,tcp,9,15,111,188,0,0,0,0,FTP-Patator
+63143299,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+80,tcp,1,1,0,0,0,0,0,1,BENIGN
+4369905,tcp,4,0,24,0,0,0,0,1,DDoS
+102632446,tcp,14,3,2390,6,0,0,0,0,DoS slowloris
+61918,udp,1,1,45,201,0,0,0,0,BENIGN
+145,udp,2,2,72,104,0,0,0,0,BENIGN
+43,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+16114356,tcp,14,14,4468,6517,0,0,0,0,BENIGN
+20998456,tcp,2,1,8,0,1,0,0,1,DoS Slowhttptest
+48,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+58,tcp,1,1,0,0,0,0,0,1,BENIGN
+3,tcp,2,0,12,0,0,0,0,1,BENIGN
+17537091,tcp,5,4,294,3525,0,0,0,0,DoS GoldenEye
+10509057,tcp,8,4,419,11632,0,0,0,0,DoS GoldenEye
+48,tcp,1,1,2,6,0,0,0,0,PortScan
+42,tcp,1,1,0,6,0,0,0,0,PortScan
+30170,tcp,3,5,26,11607,0,0,0,0,DDoS
+71,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+5873341,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+73457,tcp,4,3,206,134,0,0,0,0,Bot
+5203429,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+63147010,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+44,tcp,1,1,2,6,0,0,0,0,PortScan
+85211125,tcp,8,6,373,11595,0,0,0,1,DoS Hulk
+3,tcp,2,0,4,0,0,0,0,0,BENIGN
+5365414,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+300034,tcp,5,0,30,0,0,0,0,1,DDoS
+12605892,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+78531497,tcp,8,5,56,11607,0,0,0,1,DDoS
+12137359,tcp,9,6,814,11632,0,0,0,0,DoS GoldenEye
+108584852,tcp,4,3,363,0,0,0,0,0,DoS Slowhttptest
+54,tcp,1,1,6,6,0,0,0,1,BENIGN
+5103983,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+5006168,tcp,4,4,599,2021,0,0,0,0,Web Attack – Sql Injection
+3,tcp,2,0,0,0,0,0,0,1,DoS Hulk
+97898,udp,2,2,64,104,0,0,0,0,BENIGN
+102609848,tcp,14,3,2541,6,0,0,0,0,DoS slowloris
+8990256,tcp,9,15,116,188,0,0,0,0,FTP-Patator
+49,tcp,2,0,0,0,0,0,0,1,DoS Hulk
+35,tcp,1,1,0,0,0,0,0,1,BENIGN
+5009673,tcp,4,4,536,1840,0,0,0,0,Web Attack – Sql Injection
+3000346,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+5482663,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+5016759,tcp,5,5,599,4149,0,0,0,0,Web Attack – Sql Injection
+5109639,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+85322142,tcp,6,6,393,11595,0,0,0,1,DoS Hulk
+84,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+49,tcp,1,1,0,6,0,0,0,0,PortScan
+109972494,tcp,4,3,533,0,0,0,0,0,DoS Slowhttptest
+43,tcp,1,1,6,6,0,0,0,1,BENIGN
+4,tcp,1,1,6,6,0,0,0,1,Bot
+5005212,tcp,15,15,0,90,0,0,0,0,Infiltration
+20,tcp,2,0,12,0,0,0,0,1,Infiltration
+99999361,tcp,2,2,16,0,1,0,0,1,DoS slowloris
+42664070,tcp,5,6,141,291,0,0,0,0,Infiltration
+115863206,tcp,16,14,303,384,0,0,0,0,BENIGN
+55332,udp,4,2,156,486,0,0,0,0,BENIGN
+4,tcp,2,0,0,0,0,0,0,1,DoS Hulk
+3002545,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+118506509,tcp,59,81,7368,87489,0,0,0,0,BENIGN
+2030,tcp,2,0,12,0,0,0,0,1,Infiltration
+99912925,tcp,26,26,6674,156,1,0,0,1,Infiltration
+97722725,tcp,8,5,56,11607,0,0,0,1,DDoS
+4588876,tcp,5,0,30,0,0,0,0,1,DDoS
+9590890,tcp,4,5,353,3525,0,0,0,0,DoS GoldenEye
+11904323,tcp,5,4,431,3525,0,0,0,0,DoS GoldenEye
+34736976,udp,2,2,101,219,0,0,0,0,BENIGN
+3002214,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+30661,udp,4,2,164,226,0,0,0,0,BENIGN
+49,tcp,2,0,12,0,0,0,0,1,BENIGN
+95544008,tcp,7,10,11613,68,0,0,0,1,BENIGN
+118573317,tcp,3733,3732,1827335,22392,0,0,0,1,Infiltration
+2033884,tcp,5,0,30,0,0,0,0,1,DDoS
+5007460,tcp,5,3,537,1881,0,0,0,0,Web Attack – Sql Injection
+3002009,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+85642084,tcp,7,6,369,11595,0,0,0,1,DoS Hulk
+105569842,tcp,16,3,2541,6,0,0,0,0,DoS slowloris
+110,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+99699048,tcp,7,8,1014,11595,0,0,1,0,DoS Hulk
+21191551,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+10283205,tcp,6,7,1492,1867,0,0,0,0,BENIGN
+100997402,tcp,2,2,16,0,1,0,0,1,DoS slowloris
+5727932,tcp,5,0,30,0,0,0,0,1,DDoS
+45,tcp,1,1,8,0,1,0,0,1,DoS slowloris
+8475062,tcp,6,0,36,0,0,0,0,1,DDoS
+141,udp,2,2,80,112,0,0,0,0,BENIGN
+24445,udp,2,2,64,96,0,0,0,0,BENIGN
+81,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+118770748,tcp,16,21,4406,1486,0,0,0,1,BENIGN
+5264166,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+1060848,tcp,3,3,0,18,0,0,0,0,Bot
+75,tcp,1,1,2,6,0,0,0,0,PortScan
+45767085,tcp,2,0,12,0,0,0,0,1,BENIGN
+73,tcp,1,1,6,6,0,0,0,1,Bot
+54,tcp,1,1,0,6,0,0,0,0,PortScan
+119974830,tcp,3398,3398,1645814,20643,0,0,0,0,Infiltration
+63134800,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+95115,tcp,1,1,0,0,0,0,0,1,BENIGN
+246,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+217,tcp,2,0,12,0,0,0,0,1,BENIGN
+109,tcp,2,0,0,0,0,0,0,1,BENIGN
+16063104,tcp,11,8,1214,3996,0,0,0,0,BENIGN
+58,tcp,1,1,6,6,0,0,0,1,Bot
+171,tcp,1,1,6,6,0,0,0,1,Bot
+5008263,tcp,7,7,397,11632,0,0,0,0,DoS GoldenEye
+99138722,tcp,6,7,348,11595,0,0,1,0,DoS Hulk
+55931858,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+251,udp,2,2,76,236,0,0,0,0,BENIGN
+116393329,tcp,504,504,171452,3024,0,0,0,1,Infiltration
+10103653,tcp,9,15,104,188,0,0,0,0,FTP-Patator
+47,tcp,1,1,2,6,0,0,0,0,PortScan
+119992821,tcp,2252,2250,929308,13500,0,0,0,1,Infiltration
+11846983,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+5390608,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+5789311,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+997356,tcp,3,3,0,18,0,0,0,0,Bot
+8076283,tcp,8,4,56,11607,0,0,0,1,DDoS
+5897233,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+249,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+63123506,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+63127188,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+3,tcp,2,0,12,0,0,0,0,1,BENIGN
+74,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+99405677,tcp,6,5,349,11595,0,0,0,1,DoS Hulk
+38,tcp,1,1,6,6,0,0,0,1,Bot
+5774988,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+13526663,tcp,27,37,3288,5673,0,0,0,0,SSH-Patator
+13013916,tcp,24,32,2008,2745,0,0,0,0,SSH-Patator
+12,tcp,1,1,2,6,0,0,0,0,PortScan
+102666466,tcp,14,3,2541,6,0,0,0,0,DoS slowloris
+69483113,tcp,20,20,3734,120,1,0,0,1,Infiltration
+5435040,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+75,tcp,1,1,0,0,0,0,0,1,Web Attack – Brute Force
+26144,tcp,2,0,12,0,0,0,0,1,BENIGN
+2998578,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+73,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+119259012,tcp,2801,2069,12264,7879536,0,0,0,1,Heartbleed
+119302728,tcp,2685,1729,8299,7556917,0,0,0,0,Heartbleed
+5292403,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+119995180,tcp,1819,1817,489184,10902,0,0,0,1,Infiltration
+63149672,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+11394071,tcp,20,33,2008,2745,0,0,0,0,SSH-Patator
+3101875,tcp,4,0,24,0,0,0,0,1,DDoS
+72661,tcp,4,3,207,134,0,0,0,0,Bot
+98441229,tcp,6,6,317,11595,0,0,0,1,DoS Hulk
+90,tcp,1,1,8,0,1,0,0,1,DoS slowloris
+63094320,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+47521,tcp,3,4,438,860,0,0,0,0,BENIGN
+82027,tcp,4,3,207,134,0,0,0,0,Bot
+63123827,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+12116949,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+10742695,tcp,23,32,2008,2745,0,0,0,0,SSH-Patator
+33,tcp,1,1,6,6,0,0,0,1,Bot
+78,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+116266364,tcp,21,18,1066,4475,0,0,0,0,BENIGN
+22,tcp,1,1,2,6,0,0,0,0,PortScan
+5121592,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+223437,tcp,5,4,216,141,0,0,0,0,Bot
+5108251,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+222,udp,2,2,62,190,0,0,0,0,BENIGN
+73,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+725830,tcp,8,8,930,4230,0,0,0,0,BENIGN
+220,tcp,2,1,14,0,1,0,0,1,FTP-Patator
+170250,udp,1,1,52,153,0,0,0,0,BENIGN
+108725132,tcp,4,3,364,0,0,0,0,0,DoS Slowhttptest
+17458076,tcp,8,5,261,11632,0,0,0,0,DoS GoldenEye
+33269,tcp,3,4,26,11601,0,0,0,0,DDoS
+25256,udp,2,2,58,168,0,0,0,0,BENIGN
+6057788,tcp,10,8,3360,4389,0,0,0,0,BENIGN
+108954,tcp,22,25,1262,43949,0,0,0,0,BENIGN
+7744936,tcp,8,6,510,11632,0,0,0,0,DoS GoldenEye
+75610,tcp,4,3,210,134,0,0,0,0,Bot
+63,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+5478389,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+20999696,tcp,2,1,12,0,1,0,0,1,DoS Slowhttptest
+52296,tcp,11,6,806,1248,0,0,0,0,BENIGN
+61093042,tcp,10,9,1125,5710,0,0,0,0,BENIGN
+109369770,tcp,4,3,530,0,0,0,0,0,DoS Slowhttptest
+64,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+44,tcp,1,1,0,6,0,0,0,0,PortScan
+15977944,tcp,9,6,341,11632,0,0,0,0,DoS GoldenEye
+59984,udp,1,1,41,94,0,0,0,0,BENIGN
+55,tcp,1,1,0,6,0,0,0,0,PortScan
+84526,tcp,3,6,312,11595,0,0,0,0,DoS Hulk
+10078034,tcp,9,15,109,188,0,0,0,0,FTP-Patator
+28047362,tcp,4,3,239,0,0,0,0,0,DoS slowloris
+51,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+190,udp,2,2,64,166,0,0,0,0,BENIGN
+102631121,tcp,14,3,2541,6,0,0,0,0,DoS slowloris
+5006127,tcp,4,4,447,530,0,0,0,0,Web Attack – Sql Injection
+537433,tcp,7,2,11607,26,0,0,0,0,BENIGN
+108272215,tcp,7,3,529,0,0,0,0,0,DoS Slowhttptest
+94,tcp,1,1,0,0,0,0,0,1,Web Attack – Brute Force
+98693877,tcp,7,6,379,11595,0,0,0,1,DoS Hulk
+10930608,tcp,5,4,345,3525,0,0,0,0,DoS GoldenEye
+2308728,tcp,4,4,392,510,0,0,0,0,BENIGN
+9057763,tcp,9,15,116,188,0,0,0,0,FTP-Patator
+4,tcp,2,0,0,0,0,0,0,1,DoS Hulk
+116309296,tcp,16,14,402,499,0,0,0,0,BENIGN
+101191,udp,1,1,40,266,0,0,0,0,BENIGN
+140,tcp,2,0,12,0,0,0,0,1,BENIGN
+102673582,tcp,14,3,2541,6,0,0,0,0,DoS slowloris
+119991834,tcp,5523,5525,2866110,33406,0,0,0,0,Infiltration
+83419317,tcp,5,7,351,11595,0,0,1,0,DoS Hulk
+5648009,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+29,tcp,1,1,6,6,0,0,0,1,BENIGN
+40,tcp,1,1,2,6,0,0,0,0,PortScan
+63082962,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+103595358,tcp,15,3,2541,6,0,0,0,0,DoS slowloris
+8500562,tcp,9,15,103,188,0,0,0,0,FTP-Patator
+2120956,tcp,5,0,30,0,0,0,0,1,DDoS
+7533974,tcp,4,4,602,364,0,0,0,0,Web Attack – Brute Force
+64334,tcp,4,3,207,134,0,0,0,0,Bot
+23559,udp,1,1,47,63,0,0,0,0,BENIGN
+48,tcp,1,1,6,6,0,0,0,1,Bot
+1015739,tcp,3,3,0,18,0,0,0,0,Bot
+5297427,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+24186,udp,2,2,72,376,0,0,0,0,BENIGN
+101086101,tcp,25,25,5821,150,1,0,0,1,Infiltration
+109,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+6553991,tcp,1,5,6,30,0,0,0,1,BENIGN
+119262215,tcp,2792,2110,13712,7878135,0,0,0,1,Heartbleed
+451,udp,1,1,53,118,0,0,0,0,BENIGN
+47230,tcp,3,6,26,11601,0,0,0,0,DDoS
+11483554,tcp,6,7,1377,4113,0,0,0,0,BENIGN
+5005388,tcp,5,3,599,2021,0,0,0,0,Web Attack – Sql Injection
+5076689,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+2,tcp,3,0,0,0,0,0,0,1,DoS Hulk
+8558887,tcp,9,15,119,188,0,0,0,0,FTP-Patator
+79,tcp,1,1,0,0,0,0,0,1,Web Attack – Brute Force
+55,tcp,1,1,2,6,0,0,0,0,PortScan
+63146204,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+117532160,tcp,8,5,355,11595,0,0,0,1,DoS Hulk
+98364568,tcp,6,6,296,11595,0,0,0,1,DoS Hulk
+119259886,tcp,2782,2091,12264,7879536,0,0,0,1,Heartbleed
+5365520,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+103686683,tcp,15,3,2541,6,0,0,0,0,DoS slowloris
+5534810,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+5009163,tcp,4,4,599,2021,0,0,0,0,Web Attack – Sql Injection
+119257653,tcp,2802,2067,20858,7812389,0,0,0,1,Heartbleed
+41,tcp,1,1,0,6,0,0,0,0,PortScan
+103670732,tcp,15,3,2541,6,0,0,0,0,DoS slowloris
+100249431,tcp,8,6,307,11595,0,0,0,1,DoS Hulk
+9781544,tcp,5,0,30,0,0,0,0,1,DDoS
+63,tcp,2,0,12,0,0,0,0,1,BENIGN
+85636260,tcp,9,5,368,11595,0,0,0,1,DoS Hulk
+10425768,tcp,5,5,367,3525,0,0,0,0,DoS GoldenEye
+117923038,tcp,45,40,15754,240,1,0,0,1,Infiltration
+3001599,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+207,udp,2,2,84,162,0,0,0,0,BENIGN
+554469,tcp,13,13,663,18804,0,0,0,0,BENIGN
+4020170,tcp,5,1,129,41,1,0,0,1,BENIGN
+5229456,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+236,udp,2,2,64,258,0,0,0,0,BENIGN
+52,tcp,1,1,0,0,0,0,0,1,BENIGN
+1,tcp,2,0,0,0,0,0,0,1,DoS Hulk
+22,tcp,1,1,6,6,0,0,0,1,BENIGN
+99999524,tcp,2,2,16,0,1,0,0,1,DoS slowloris
+10001244,tcp,21,31,2008,2745,0,0,0,0,SSH-Patator
+272616,tcp,6,6,356,3782,0,0,0,0,BENIGN
+61,tcp,1,1,0,6,0,0,0,0,PortScan
+5473380,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+1224540,tcp,1,5,6,30,0,0,0,1,BENIGN
+62,tcp,1,1,2,6,0,0,0,0,PortScan
+3003590,tcp,3,0,0,0,0,0,0,0,DoS slowloris
+106297450,tcp,6,3,531,0,0,0,0,0,DoS Slowhttptest
+79130,udp,2,2,76,206,0,0,0,0,BENIGN
+18897509,tcp,8,0,7366,0,1,0,0,1,Infiltration
+224,tcp,2,0,0,0,0,0,0,1,BENIGN
+5269996,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+8659024,tcp,9,15,112,188,0,0,0,0,FTP-Patator
+10244667,tcp,4,0,24,0,0,0,0,1,DDoS
+79492070,tcp,41,39,14666,234,1,0,0,1,Infiltration
+5207925,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+41,tcp,1,1,6,6,0,0,0,1,Bot
+56538478,tcp,2,1,66,6,0,0,0,1,Infiltration
+5500437,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+119973135,tcp,4376,4374,2321478,26244,0,0,0,1,Infiltration
+63130772,tcp,7,0,0,0,0,0,0,0,DoS Slowhttptest
+106754152,tcp,103,137,9367,201957,0,0,0,0,BENIGN
+12169636,tcp,19,31,2008,2745,0,0,0,0,SSH-Patator
+444119,tcp,15,11,976,7408,0,0,0,0,BENIGN
+5008443,tcp,8,8,374,11632,0,0,0,0,DoS GoldenEye
+63115871,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+5464552,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+10004334,tcp,2,0,0,0,0,0,0,1,DoS GoldenEye
+11780785,tcp,5,0,30,0,0,0,0,1,DDoS
+5913716,tcp,8,6,609,4007,0,0,0,0,BENIGN
+5491692,tcp,3,1,0,0,0,0,0,0,BENIGN
+23,tcp,1,1,0,6,0,0,0,0,PortScan
+109941420,tcp,4,3,528,0,0,0,0,0,DoS Slowhttptest
+536096,tcp,4,2,231,0,0,0,0,0,DoS slowloris
+48,tcp,2,2,12,4,0,0,1,1,BENIGN
+69365637,tcp,1031,1031,307939,6186,1,0,0,1,Infiltration
+34047,tcp,3,5,26,11607,0,0,0,0,DDoS
+8712829,tcp,9,15,100,188,0,0,0,0,FTP-Patator
+10596319,tcp,8,6,613,11632,0,0,0,0,DoS GoldenEye
+6000338,tcp,3,1,0,0,0,0,0,0,Web Attack – Brute Force
+8847133,tcp,9,15,117,188,0,0,0,0,FTP-Patator
+42,tcp,1,1,0,0,0,0,0,1,Web Attack – Sql Injection
+76,tcp,1,1,2,6,0,0,0,0,PortScan
+105674670,tcp,16,3,2541,6,0,0,0,0,DoS slowloris
+25009948,tcp,34,32,13504,192,1,0,0,1,Infiltration
+78815309,tcp,8,4,56,11601,0,0,0,1,DDoS
+1024626,tcp,3,3,0,18,0,0,0,0,Bot
+98200159,tcp,9,6,62,11601,0,0,0,1,DDoS
+13351441,tcp,21,32,2008,2745,0,0,0,0,SSH-Patator
+31179018,tcp,34,39,2111,47913,0,0,0,0,BENIGN
+70,tcp,1,1,0,0,0,0,0,1,SSH-Patator
+23484,udp,1,1,49,177,0,0,0,0,BENIGN
+111406728,tcp,21,21,4584,126,1,0,0,1,Infiltration
+98862757,tcp,6,6,302,11595,0,0,0,1,DoS Hulk
+997270,tcp,3,3,0,18,0,0,0,0,Bot
+5551022,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+21498662,tcp,13,10,1460,5438,0,0,0,0,BENIGN
+5004081,tcp,8,6,451,11632,0,0,0,0,DoS GoldenEye
+198,udp,2,2,72,146,0,0,0,0,BENIGN
+18603,tcp,2,0,0,0,0,0,0,1,BENIGN
+8758097,tcp,9,15,103,188,0,0,0,0,FTP-Patator
+44,tcp,1,1,2,6,0,0,0,0,PortScan
+5116588,tcp,3,1,0,0,0,0,0,0,Web Attack – XSS
+31371,udp,2,2,82,238,0,0,0,0,BENIGN

@@ -6,6 +6,7 @@ from ollama_lib import OllamaClient
 from scapy.all import sniff
 from scapy.layers.inet import IP, TCP, UDP
 import ipaddress
+import queue
 import threading
 import requests
 import re
@@ -52,21 +53,42 @@ except Exception as e:
     print(f"[WARN] SecOps-AI: detection engine not loaded ({e}). "
           f"Run train_flow_model.py to build models/. Sniffing continues without verdicts.")
 
-# One flow tracker shared by live sniffing and pcap replay.
+# --- Ingestion pipeline -----------------------------------------------------
+# sniff -> shard by flow key -> N workers (one per shard, each owning its own
+# FlowTracker) -> write_queue -> ONE DB writer.
 #
-# It is shared by N enrichment workers, and FlowTracker itself does no locking
-# (its dict is mutated by update/expire/flush), so every mutation goes through
-# _flow_lock. The lock is held ONLY around the tracker call -- classification and
-# enrichment happen outside it, so workers still run in parallel where it counts.
-flow_tracker = ft.FlowTracker()
-_flow_lock = threading.Lock()
-
-# --- Ingestion pipeline (Phase 2) -------------------------------------------
-# sniff -> capture_queue -> enrichment workers -> write_queue -> ONE DB writer.
-# The sniff thread does capture ONLY; everything expensive (geo/reputation HTTP,
-# flow tracking, classification, DB writes) happens downstream.
-capture_queue = pipeline.DropCounterQueue(maxsize=config.CAPTURE_QUEUE_MAX)
+# The sniff thread parses just enough to identify the flow and route the packet;
+# everything expensive (geo/reputation HTTP, classification, DB writes) happens
+# downstream.
+#
+# There is deliberately NO shared FlowTracker and no flow lock. Flow tracking is
+# order-dependent -- the first packet defines the forward direction, FIN/FIN
+# closes the flow -- so the previous shared-tracker-under-a-lock design was
+# thread-safe but not order-preserving: workers raced within a flow, splitting it
+# and flipping its direction at random. Each shard now owns its tracker outright,
+# and a shard has exactly one worker, so the tracker is single-threaded by
+# construction. That is a stronger guarantee than a lock can give, and it is free.
+capture_queue = pipeline.ShardedCaptureQueue(config.ENRICHMENT_WORKERS,
+                                             config.CAPTURE_QUEUE_MAX)
 db_writer = pipeline.BatchedDBWriter(config.DB_PATH)
+
+
+class _Shard:
+    """One queue + the FlowTracker its single worker owns exclusively."""
+
+    def __init__(self, index: int):
+        self.index = index
+        self.queue = capture_queue.queue(index)
+        self.tracker = ft.FlowTracker()
+
+
+_shards = [_Shard(i) for i in range(capture_queue.shards)]
+
+# Sentinel: "flush your tracker's open flows and signal this event". Sent through
+# a shard's queue rather than having the caller touch the tracker, so the owning
+# worker remains the only thread that ever mutates it (same barrier trick as
+# BatchedDBWriter.drain).
+_FLUSH_FLOWS = object()
 
 # Packets/sec, sampled off the capture counter on its own clock (see
 # pipeline.RateTracker for why it is not measured between /stats reads).
@@ -84,24 +106,34 @@ _pipeline_lock = threading.Lock()
 _workers: list = []
 
 
-def _enrichment_worker():
-    """Stage 2: drain capture_queue, enrich + track + classify. Never writes to
-    SQLite directly -- rows go to the writer queue."""
+def _enrichment_worker(shard: _Shard):
+    """Stage 2: drain ONE shard, enrich + track + classify. Never writes to
+    SQLite directly -- rows go to the writer queue.
+
+    This thread is the sole owner of `shard.tracker`: every read and mutation of
+    it happens here, which is what keeps flow state correct without a lock.
+    """
     while True:
         try:
-            packet = capture_queue.get(timeout=0.25)
-        except Exception:
+            item = shard.queue.get(timeout=0.25)
+        except queue.Empty:
+            # The shard has gone quiet. Idle/long-lived flows still need to be
+            # emitted, and this worker is the only thread allowed to do it.
+            _expire_idle_flows(shard)
             continue
         try:
-            if packet is None:                       # shutdown sentinel
-                capture_queue.task_done()
+            if item is None:                         # shutdown sentinel
                 return
-            _process_captured_packet(packet)
+            if item[0] is _FLUSH_FLOWS:              # (sentinel, event)
+                _flush_shard_flows(shard)
+                item[1].set()
+                continue
+            packet, meta = item
+            _process_captured_packet(shard, packet, meta)
         except Exception as e:
             print(f"[ERROR] Enrichment worker (continuing): {e}")
         finally:
-            if packet is not None:
-                capture_queue.task_done()
+            shard.queue.task_done()
 
 
 def start_pipeline():
@@ -113,9 +145,9 @@ def start_pipeline():
             return
         db_writer.start()
         capture_rate.start()
-        for i in range(config.ENRICHMENT_WORKERS):
-            t = threading.Thread(target=_enrichment_worker,
-                                 name=f"enrich-{i}", daemon=True)
+        for shard in _shards:
+            t = threading.Thread(target=_enrichment_worker, args=(shard,),
+                                 name=f"enrich-{shard.index}", daemon=True)
             t.start()
             _workers.append(t)
         _pipeline_started = True
@@ -129,7 +161,10 @@ def pipeline_stats() -> dict:
         "packets_per_sec": round(capture_rate.rate(), 2),
         "db_writer": db_writer.stats(),
         "enrichment_cache": enrichment.stats(),
-        "open_flows": len(flow_tracker),
+        # Summed across shards. Reading len() of a tracker another thread owns is
+        # a plain dict length -- atomic under the GIL, and a stat that is one flow
+        # stale is not worth a lock on the hot path.
+        "open_flows": sum(len(s.tracker) for s in _shards),
     }
 
 
@@ -355,21 +390,14 @@ def _handle_completed_flow(flow):
     })
 
 
-def _ingest_packet_flows(packet):
-    """Feed one packet into the flow tracker and classify any completed flows.
-    Runs on an enrichment worker. The tracker mutation is locked (workers share
-    one tracker); classification deliberately happens OUTSIDE the lock so the
-    expensive part stays parallel."""
+def _ingest_packet_flows(shard: _Shard, meta):
+    """Feed one packet into this shard's tracker and classify completed flows.
+
+    No lock: the calling worker is the tracker's only owner, and the shard's FIFO
+    queue guarantees it sees this flow's packets in capture order.
+    """
     try:
-        meta = ft.meta_from_scapy(packet)
-    except Exception as e:
-        print(f"[ERROR] Packet->flow conversion failed (continuing): {e}")
-        return
-    if meta is None:
-        return
-    try:
-        with _flow_lock:
-            completed = flow_tracker.update(meta)
+        completed = shard.tracker.update(meta)
     except Exception as e:
         print(f"[ERROR] Flow tracking failed (continuing): {e}")
         return
@@ -377,29 +405,95 @@ def _ingest_packet_flows(packet):
         _handle_completed_flow(flow)
 
 
+def _expire_idle_flows(shard: _Shard):
+    """Emit idle/long-lived flows when a shard goes quiet.
+
+    The packet-driven path only expires flows when new packets arrive, so a flow
+    that simply stops would otherwise never be classified. Runs on the shard's own
+    worker (the tracker's owner) when its queue has been empty for one poll.
+
+    Disabled during replay: this compares flow timestamps against the WALL CLOCK,
+    but a capture carries its own timestamps -- replaying a 2020 pcap in 2026 would
+    make every flow look idle for six years and expire it mid-replay, fragmenting
+    exactly what the sharding is here to keep whole. Replay ends with an explicit
+    flush instead.
+    """
+    if not _idle_expiry_enabled:
+        return
+    try:
+        expired = shard.tracker.expire()
+    except Exception as e:
+        print(f"[ERROR] Flow expiry failed (continuing): {e}")
+        return
+    for flow in expired:
+        _handle_completed_flow(flow)
+
+
+def _flush_shard_flows(shard: _Shard):
+    """Emit every flow still open in this shard. End-of-replay only."""
+    try:
+        remaining = shard.tracker.flush()
+    except Exception as e:
+        print(f"[ERROR] Flow flush failed (continuing): {e}")
+        return
+    for flow in remaining:
+        _handle_completed_flow(flow)
+
+
 # Telemetry is enabled per-run rather than per-packet: replay turns it on via
 # replay_pcap(with_telemetry=True); live sniffing always does it.
 _telemetry_enabled = True
+# See _expire_idle_flows: wall-clock expiry is meaningless against a pcap's own
+# timestamps, so replay turns it off for the duration.
+_idle_expiry_enabled = True
 
 
-def _process_captured_packet(packet):
+def _process_captured_packet(shard: _Shard, packet, meta):
     """Stage 2 body: everything the sniff thread used to do inline. Called only
-    from enrichment workers."""
-    if not (packet.haslayer(IP) and (packet.haslayer(TCP) or packet.haslayer(UDP))):
-        return
+    from the shard's enrichment worker.
+
+    `meta` is not None: the capture stage only queues packets it could parse into
+    a flow key, which is the same IPv4-TCP/UDP predicate this used to re-check.
+    """
     if _telemetry_enabled:
         _record_packet_telemetry(packet)
-    _ingest_packet_flows(packet)
+    _ingest_packet_flows(shard, meta)
+
+
+def _route(packet):
+    """Parse one packet just far enough to identify its flow. Returns
+    (canonical_key, meta), or None for anything that is not IPv4 TCP/UDP.
+
+    Routing has to know the flow, so this parse is the one piece of real work the
+    capture stage cannot avoid -- a packet can only be sent to the worker that owns
+    its flow if we know which flow it belongs to. It stays cheap and CPU-only (no
+    HTTP, no DB, no classification, and notably no packet.summary(), which builds a
+    string and stays on the worker). The parse result rides along with the packet
+    so the worker never repeats it.
+    """
+    try:
+        meta = ft.meta_from_scapy(packet)
+    except Exception as e:
+        print(f"[ERROR] Packet->flow conversion failed (continuing): {e}")
+        return None
+    if meta is None:
+        return None
+    return ft.canonical_key(meta), meta
 
 
 def packet_callback(packet):
-    """Stage 1: the sniff thread's ONLY job -- hand the packet to the pipeline.
+    """Stage 1: the sniff thread's ONLY job -- route the packet to its shard.
 
-    This must stay trivial. It performs no geo/reputation/DB/classify work; if the
-    capture queue is full the packet is dropped and counted rather than blocking,
-    because a blocked sniffer stops seeing all traffic.
+    This must stay trivial, and must never raise: an exception here kills the
+    sniffer. If the shard's queue is full the packet is dropped and counted rather
+    than blocking, because a blocked sniffer stops seeing all traffic.
     """
-    capture_queue.offer(packet)
+    routed = _route(packet)
+    if routed is None:
+        capture_queue.count_ignored()
+        return
+    key, meta = routed
+    capture_queue.offer(key, (packet, meta))
 
 
 def replay_pcap(path, with_telemetry=False, drop_on_overflow=False):
@@ -413,30 +507,52 @@ def replay_pcap(path, with_telemetry=False, drop_on_overflow=False):
     and its counts are deterministic. Pass drop_on_overflow=True to exercise the
     drop path deliberately (flood testing). Returns the packet count read.
     """
-    global _telemetry_enabled
+    global _telemetry_enabled, _idle_expiry_enabled
     from scapy.utils import PcapReader
     start_pipeline()
     _telemetry_enabled = with_telemetry
+    _idle_expiry_enabled = False        # see _expire_idle_flows
     count = 0
     try:
         with PcapReader(path) as reader:
             for pkt in reader:
                 count += 1
+                routed = _route(pkt)
+                if routed is None:
+                    capture_queue.count_ignored()
+                    continue
+                key, meta = routed
                 if drop_on_overflow:
-                    capture_queue.offer(pkt)
+                    capture_queue.offer(key, (pkt, meta))
                 else:
-                    capture_queue.put_blocking(pkt)
+                    capture_queue.put_blocking(key, (pkt, meta))
         # Wait for the workers to finish everything we queued.
         capture_queue.join()
-        # End of capture: flush still-open flows through the same handler.
-        with _flow_lock:
-            remaining = flow_tracker.flush()
-        for flow in remaining:
-            _handle_completed_flow(flow)
+        # End of capture: every shard flushes its own still-open flows.
+        _flush_all_flows()
         db_writer.drain()
     finally:
         _telemetry_enabled = True
+        _idle_expiry_enabled = True
     return count
+
+
+def _flush_all_flows(timeout: float = 30.0) -> bool:
+    """Ask every shard's worker to emit its remaining open flows, and wait.
+
+    Goes through the queues rather than calling tracker.flush() from here: the
+    owning worker must stay the only thread that touches its tracker, and the
+    sentinel arrives behind that shard's packets, so the flush cannot race ahead
+    of work still in flight.
+    """
+    if not _pipeline_started:
+        return False
+    events = []
+    for shard in _shards:
+        done = threading.Event()
+        shard.queue.put_blocking((_FLUSH_FLOWS, done))
+        events.append(done)
+    return all(e.wait(timeout) for e in events)
 
 
 def _bench_drain():
@@ -446,18 +562,11 @@ def _bench_drain():
     db_writer.drain()
 
 
-def flow_expiry_worker():
-    """Emit idle/long-lived flows even when traffic goes quiet (the packet-driven
-    path only expires flows when new packets arrive). Runs as a daemon thread."""
-    while True:
-        time.sleep(5)
-        try:
-            with _flow_lock:
-                expired = flow_tracker.expire()
-            for flow in expired:
-                _handle_completed_flow(flow)
-        except Exception as e:
-            print(f"[ERROR] Flow expiry worker error (continuing): {e}")
+# flow_expiry_worker() lived here: one thread expiring flows out of the shared
+# tracker on a timer. It is gone because a tracker now has exactly one owner --
+# its shard's worker, which expires its own flows when its queue goes quiet (see
+# _expire_idle_flows). A separate thread reaching into every shard's tracker would
+# reintroduce precisely the cross-thread mutation the sharding removed.
 
 
 
@@ -769,14 +878,15 @@ if __name__ == '__main__':
     # Stage 2 + 3: enrichment workers and the single batched DB writer. Must be up
     # before the sniffer starts pushing into the capture queue.
     start_pipeline()
-    print(f"⚙️  Pipeline: {config.ENRICHMENT_WORKERS} enrichment workers -> 1 batched DB writer (WAL); "
-          f"capture queue max {config.CAPTURE_QUEUE_MAX}")
+    print(f"⚙️  Pipeline: {capture_queue.shards} flow-sharded enrichment workers -> "
+          f"1 batched DB writer (WAL); capture queue max {config.CAPTURE_QUEUE_MAX} "
+          f"({config.CAPTURE_QUEUE_MAX // capture_queue.shards}/shard)")
 
-    # Stage 1: capture only.
+    # Stage 1: capture + route only.
     threading.Thread(target=start_sniffing, daemon=True).start()
 
-    # Emit flow verdicts even when traffic goes quiet
-    threading.Thread(target=flow_expiry_worker, daemon=True).start()
+    # Flow expiry needs no thread of its own: each worker expires the flows it
+    # owns when its shard goes quiet (see _expire_idle_flows).
 
     # Surface dropped packets: a silent drop is a lie, a counted drop is a metric.
     threading.Thread(target=drop_monitor, daemon=True).start()
