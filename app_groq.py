@@ -55,7 +55,10 @@ app.config.update(
 
 # CORS locked to the console's own origins (config.ALLOWED_ORIGINS), never "*":
 # the dashboard is same-origin, so nothing legitimate needs a wildcard.
-socketio = SocketIO(app, async_mode='threading',
+# async_mode matches the server actually running this module: 'threading' for
+# dev on Werkzeug, 'gevent' under the container's gunicorn gevent worker
+# (which monkey-patches, so the pipeline's threads become greenlets there).
+socketio = SocketIO(app, async_mode=config.SOCKETIO_ASYNC_MODE,
                     cors_allowed_origins=config.ALLOWED_ORIGINS)
 
 # /register, /login, /logout + the default-deny gate over every other route.
@@ -193,7 +196,7 @@ def pipeline_stats() -> dict:
     }
 
 
-ollama_client = OllamaClient(base_url="http://localhost:11434")
+ollama_client = OllamaClient(base_url=config.OLLAMA_URL)
 
 
 def get_db_connection():
@@ -315,7 +318,9 @@ def send_system_metrics():
             threading.Thread(target=run_groq_triage, args=(cpu_usage, memory_usage, disk_usage), daemon=True).start()
 
         counter += 1
-        time.sleep(5)
+        # socketio.sleep, not time.sleep: yields correctly under every async
+        # mode (plain sleep in threading mode, cooperative under gevent).
+        socketio.sleep(5)
 
 def fetch_recent_logs():
     with get_db_connection() as conn:
@@ -677,7 +682,7 @@ def notify_ai(message):
         # OllamaClient.chat() posts to /v1/chat/completions (Ollama's OpenAI-
         # compatible endpoint), so the reply is in choices[0].message.content.
         result = ollama_client.chat(
-            model='llama3.2',
+            model=config.OLLAMA_MODEL,
             messages=[{'role': 'user', 'content': short_prompt}],
         )
         response = result['choices'][0]['message']['content']

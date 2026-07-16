@@ -1,0 +1,46 @@
+# SecOps-AI demo deployment (Phase 4b).
+#
+#   docker compose up                          -> console on http://localhost:5000
+#   docker compose --profile edge-alerts up    -> + optional local Ollama for edge alerts
+#
+# Least-privilege on purpose: no privileged flags, no host networking, and the
+# image runs as a non-root user. The container does replay-only capture (the
+# first-boot demo seed); live NIC sniffing stays a host/bare-metal feature.
+
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      # DEMO-ONLY fallback key so `docker compose up` works out of the box.
+      # It is public knowledge (it's in this file) -- anyone deploying beyond
+      # a local demo MUST set SECOPS_SECRET_KEY in .env (see .env.example).
+      SECOPS_SECRET_KEY: ${SECOPS_SECRET_KEY:-demo-only-secret-key-public-in-compose-file-DO-NOT-DEPLOY}
+      # Populate the map/feed on first boot by replaying the demo capture.
+      SECOPS_SEED_DEMO: ${SECOPS_SEED_DEMO:-1}
+      # Optional: Groq cloud triage (console chat). Empty is fine -- the chat
+      # endpoint degrades to an error message instead of advice.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Edge alerts target the compose service name. Without the edge-alerts
+      # profile nothing listens there and notify_ai() degrades gracefully.
+      SECOPS_OLLAMA_URL: http://ollama:11434
+      SECOPS_OLLAMA_MODEL: ${SECOPS_OLLAMA_MODEL:-llama3.2}
+    volumes:
+      # Detections/telemetry/users survive container recreation.
+      - secops-data:/data
+    restart: unless-stopped
+
+  # Optional local LLM for edge alerts: docker compose --profile edge-alerts up
+  # After first start, pull the model once:
+  #   docker compose exec ollama ollama pull llama3.2
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["edge-alerts"]
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  secops-data:
+  ollama-models:

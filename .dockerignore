@@ -1,0 +1,30 @@
+# Keep the build context tiny: the venv alone is ~2 GB, and the Dockerfile
+# copies an explicit file list anyway -- this exists so `COPY` never waits on
+# gigabytes of context upload.
+venv/
+.git/
+.claude/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Never bake secrets or the developer's live database into an image.
+.env
+system_metrics.db*
+
+# Training/analysis artifacts -- the shipped GBT needs none of these.
+*.parquet
+SecIDS-CNN.h5
+train_flow_model.py
+scripts/
+docs/
+tests/
+
+# Big captures. The demo seed pcap (samples/demo-public-ips.pcap, 22 KB) is
+# NOT ignored -- the entrypoint replays it to populate the first-boot demo.
+samples/dos-volumetric.pcap
+samples/heartbleed-excerpt.pcap
+
+*.md
+LICENSE

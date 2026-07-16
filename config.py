@@ -148,6 +148,19 @@ SESSION_COOKIE_SECURE = os.getenv("SECOPS_COOKIE_SECURE", "0").lower() in ("1", 
 LOGIN_MAX_FAILURES = 5
 LOGIN_FAILURE_WINDOW_S = 300.0
 
+# --- Serving / container (Phase 4b) ---
+# Socket.IO async mode must agree with how the process is served: 'threading'
+# for dev (`python app_groq.py` on Werkzeug), 'gevent' in the container where
+# gunicorn runs a gevent worker. Env-driven rather than guessed, because the
+# same module is imported by both.
+SOCKETIO_ASYNC_MODE = os.getenv("SECOPS_SOCKETIO_ASYNC_MODE", "threading")
+
+# Ollama edge-alert service (optional). localhost on bare metal; docker-compose
+# points this at its `ollama` service (edge-alerts profile). When nothing is
+# listening, notify_ai() degrades gracefully -- alerts are skipped, not fatal.
+OLLAMA_URL = os.getenv("SECOPS_OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("SECOPS_OLLAMA_MODEL", "llama3.2")
+
 # --- Read API (Phase 3) ---
 # Paged so a client can never ask the DB for an unbounded result set.
 API_PAGE_SIZE_DEFAULT = 50

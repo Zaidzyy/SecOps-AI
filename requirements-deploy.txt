@@ -1,0 +1,12 @@
+# SecOps-AI - CONTAINER serving dependencies (Phase 4b), on top of
+# requirements.txt. Not needed for dev: `python app_groq.py` serves on
+# Werkzeug in threading mode.
+#
+# gunicorn runs ONE gevent worker (Socket.IO requires sticky sessions, so one
+# worker per instance; scale with instances + a message queue, not workers).
+# gevent-websocket supplies the WebSocket upgrade for that worker -- without it
+# Socket.IO silently falls back to long-polling, which is exactly the failure
+# the container verification checks for.
+gunicorn==23.0.0
+gevent==25.5.1
+gevent-websocket==0.10.1

@@ -275,6 +275,51 @@ captures in `docs/screenshots/`.
    (`/register`), then log in. Every console page, data endpoint, and the live
    WebSocket stream requires a logged-in session.
 
+## Docker
+
+Run the whole console with one command (requires Docker + Compose):
+
+```bash
+docker compose up
+```
+
+Then open `http://localhost:5000`, **register** an operator account, and log
+in — the dashboard is already populated: on first boot the container replays
+`samples/demo-public-ips.pcap` through the real detection pipeline
+(`SECOPS_SEED_DEMO=1`, default on), so the threat map and detection feed have
+data immediately.
+
+Configuration comes from `.env` (copy `.env.example`). If `SECOPS_SECRET_KEY`
+is unset, compose falls back to a **demo-only key that is public in
+`docker-compose.yml`** — fine for a local demo, never for a deployment others
+can reach.
+
+What the container is, deliberately:
+
+- **Replay-only capture.** Live NIC sniffing is a host/bare-metal feature: it
+  needs privileged access to a network interface, and this container is
+  unprivileged by design — no `--privileged`, no host networking, runs as a
+  non-root user (`secops`, uid 10001). To sniff live traffic, run
+  `python app_groq.py` on the host as in [Installation](#installation).
+- **A real WSGI server.** The container serves via gunicorn with a gevent
+  worker (`SECOPS_SOCKETIO_ASYNC_MODE=gevent`), with real WebSocket upgrades
+  through `gevent-websocket` — not the Werkzeug dev server. One worker per
+  instance: Socket.IO requires sticky sessions.
+- **SQLite on a volume.** Users, detections, and telemetry live in the
+  `secops-data` volume and survive container recreation.
+
+**Edge alerts (optional Ollama):** the default `up` skips the local LLM
+entirely — `notify_ai()` just degrades gracefully. To enable it:
+
+```bash
+docker compose --profile edge-alerts up -d
+docker compose exec ollama ollama pull llama3.2   # once, ~2 GB
+```
+
+The app targets the `ollama` compose service automatically
+(`SECOPS_OLLAMA_URL`); swap the model with `SECOPS_OLLAMA_MODEL` if you want
+something smaller.
+
 ## Pro Tips for Deployment
 
 - **Npcap (Windows)**: Ensure Npcap is installed for the Scapy packet sniffer to capture live network traffic.
