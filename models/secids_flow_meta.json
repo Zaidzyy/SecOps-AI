@@ -33,11 +33,17 @@
     6,
     1
   ],
-  "class_weighting": "w ~ 1/n^alpha per class (benign is a class), alpha=0.5. alpha and threshold were chosen by maximising validation macro recall subject to per-flow benign FPR <= 0.01; see metrics.json operating_point/frontier.",
+  "class_weighting": "w ~ 1/n^alpha per class (benign is a class), alpha=0.5 for the shipped GBT. alpha and threshold were chosen by maximising validation macro recall subject to per-flow benign FPR <= 0.01; see metrics.json operating_point/frontier.",
   "operating_point": {
     "alpha": 0.5,
     "threshold": 0.95,
     "selection": "Maximises validation macro recall (0.7464) subject to per-flow benign FPR <= 0.01 (achieved 0.00148)."
+  },
+  "cnn_operating_point": {
+    "alpha": 0.15,
+    "threshold": 0.65,
+    "note": "The baseline Conv1D's OWN frontier point under the same FPR budget -- used only in metrics.json's benchmark. The serving threshold (config.CLASSIFY_THRESHOLD) belongs to the primary GBT; switching PRIMARY_MODEL_TYPE to cnn would require this threshold instead.",
+    "selection": "Maximises validation macro recall (0.2953) subject to per-flow benign FPR <= 0.01 (achieved 0.009836)."
   },
   "dataset": "CIC-IDS-2017 (rdpahalavan/CIC-IDS2017, Network-Flows parquet)",
   "shipped_models": {
@@ -55,5 +61,5 @@
     "attack_rows": 556555,
     "benign_rows_used": 1113110
   },
-  "trained_at": "2026-07-16T10:42:19.904566+00:00"
+  "trained_at": "2026-07-16T11:10:34.270555+00:00"
 }

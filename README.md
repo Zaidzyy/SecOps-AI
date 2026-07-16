@@ -57,27 +57,28 @@ fine per-shape and is unusable per-flow (we measured a 12× gap on an earlier
 fully class-balanced fit). Every benign FPR quoted here weights each shape by
 its real multiplicity in the dataset.
 
-Held-out test, at the shipped operating point (GBT):
+**The benchmark is like-for-like: each model at its own tuned operating point.**
+Both models are swept over the same α × threshold grid under the same FPR
+budget, and each is reported at its own best point — scoring the baseline at
+the primary's threshold would rig the comparison. Held-out test:
 
-| Metric | Value |
-|---|---|
-| **Per-flow benign FPR** | **0.15%** (budget ≤ 1%) |
-| Macro attack recall (every class counts once) | 0.72 |
-| Weighted attack recall (by row count) | 0.97 |
-| F1 (binary) | 0.985 |
+| Model | Own operating point | Per-flow benign FPR | Macro recall | Weighted recall | F1 |
+|---|---|---|---|---|---|
+| **GBT (shipped)** | α=0.5, thr=0.95 | **0.15%** (budget ≤ 1%) | **0.72** | 0.97 | **0.985** |
+| Conv1D (baseline) | α=0.15, thr=0.65 | 0.98% | 0.29 | 0.60 | 0.727 |
 
 | Split | Meaning | GBT F1 | Conv1D F1 |
 |---|---|---|---|
-| **Dedup + stratified, held-out test** | **Headline** — identical flows can't span splits | **0.985** | 0.091 |
-| Random stratified | Optimistic upper bound (duplicate bursts leak) | 0.940 | 0.289 |
+| **Dedup + stratified, held-out test** | **Headline** — identical flows can't span splits | **0.985** | 0.727 |
+| Random stratified | Optimistic upper bound (duplicate bursts leak) | 0.940 | 0.421 |
 | Group by source IP | Degenerate — one IP emits 99.6% of attacks | 0.001 | 0.000 |
 
 The shipped GBT is exactly the model the frontier measured (trained on the 60%
-train split), so the selection evidence describes the deployed artifact. The
-Conv1D baseline is evaluated at the GBT's operating point, which it was not
-tuned for — its collapse at threshold 0.95 is part of why the GBT ships. A
-per-feature leakage check found no single feature exceeding 0.72 AUC. Full
-numbers, per-class recall, and the frontier: `models/metrics.json`.
+train split), so the selection evidence describes the deployed artifact. Even
+at its own best operating point the Conv1D reaches less than half the GBT's
+macro recall while spending nearly the whole FPR budget — which is why the GBT
+ships. A per-feature leakage check found no single feature exceeding 0.72 AUC.
+Full numbers, per-class recall, and both frontiers: `models/metrics.json`.
 
 **Retrain / reproduce:**
 ```bash

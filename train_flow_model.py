@@ -8,6 +8,10 @@ exactly the flow features `flow_tracker` emits, with a scaler we save/reuse.
 Primary detector: gradient-boosted trees (GBT). Baseline for comparison: a
 compact Conv1D. On low-dimensional tabular flow features the GBT wins clearly
 (trees beat CNNs on tabular data); we ship the GBT and keep the CNN documented.
+The comparison is like-for-like: BOTH models are swept over the same
+alpha x threshold grid and each is reported at its OWN best operating point
+under the same FPR budget -- the baseline is never scored at the primary's
+threshold.
 
 FEATURES: 6, not the original 10. The four TCP flag features were dropped for not
 transferring from the dataset to the wire -- CIC-IDS-2017 PortScan rows have all
@@ -279,31 +283,35 @@ def train_cnn(Xtr, ytr, Xte, n_feat, epochs, seed, sample_weight=None):
 
 
 def evaluate_split(name, note, Xtr, Xte, ytr, yte, ctr, cte, mte, n_feat, epochs,
-                   seed, alpha, threshold):
+                   seed, gbt_point, cnn_point):
     """Fit scaler + both models on this split's train, eval on test. Returns
     (result_dict, fitted_scaler, fitted_gbt, fitted_cnn, gbt_pred, cnn_pred).
 
     `ctr`/`cte` are the attack-class labels for train/test: the first drives the
     alpha weighting, the second the per-class recall table. `mte` is the test
-    rows' natural flow multiplicity for the per-flow benign FPR. `alpha` and
-    `threshold` are the operating point chosen by the frontier sweep in main.
+    rows' natural flow multiplicity for the per-flow benign FPR. `gbt_point` and
+    `cnn_point` are each model's OWN (alpha, threshold) from the frontier sweep:
+    the comparison is fair only if neither model is scored at an operating point
+    tuned for the other.
     """
+    gbt_alpha, gbt_thr = gbt_point
+    cnn_alpha, cnn_thr = cnn_point
     scaler = StandardScaler().fit(Xtr)
     Xtr_s = scaler.transform(Xtr).astype("float32")
     Xte_s = scaler.transform(Xte).astype("float32")
-    w = class_weights_alpha(ctr, alpha)
 
-    gbt, gbt_prob = train_gbt(Xtr_s, ytr, Xte_s, seed, sample_weight=w)
-    gbt_pred = (gbt_prob >= threshold).astype(int)
+    gbt, gbt_prob = train_gbt(Xtr_s, ytr, Xte_s, seed,
+                              sample_weight=class_weights_alpha(ctr, gbt_alpha))
+    gbt_pred = (gbt_prob >= gbt_thr).astype(int)
 
     cnn, cnn_prob = train_cnn(Xtr_s, ytr, Xte_s, n_feat, epochs, seed,
-                              sample_weight=w)
-    cnn_pred = (cnn_prob >= threshold).astype(int)
+                              sample_weight=class_weights_alpha(ctr, cnn_alpha))
+    cnn_pred = (cnn_prob >= cnn_thr).astype(int)
 
     result = {
         "note": note,
-        "alpha": alpha,
-        "threshold": threshold,
+        "gbt_operating_point": {"alpha": gbt_alpha, "threshold": gbt_thr},
+        "cnn_operating_point": {"alpha": cnn_alpha, "threshold": cnn_thr},
         "test_size": int(len(yte)),
         "test_positives": int(yte.sum()),
         "gbt": scores(yte, gbt_pred, gbt_prob),
@@ -331,38 +339,44 @@ SWEEP_THRESHOLDS = [round(0.5 + 0.05 * i, 2) for i in range(10)]  # 0.5 .. 0.95
 FPR_BUDGET = 0.01  # hard ceiling on per-flow benign FPR, tuned on validation
 
 
-def frontier_sweep(Xtr_s, ytr, ctr, Xva_s, yva, cva, mva, seed):
-    """One GBT fit per alpha, one frontier row per (alpha, threshold).
+def frontier_sweep(Xtr_s, ytr, ctr, Xva_s, yva, cva, mva, n_feat, epochs, seed):
+    """One fit per (model, alpha), one frontier row per (model, alpha, threshold).
 
-    Every row carries the three numbers the pick is made from -- macro recall,
-    per-class recall, per-flow benign FPR -- measured on the VALIDATION split
-    only. The held-out test split is not consulted here at all.
+    BOTH models are swept, each getting its own operating point under the SAME
+    FPR budget. Benchmarking the Conv1D at the GBT's threshold would be a rigged
+    comparison -- an operating point tuned for one model is an arbitrary point on
+    the other's curve. Every row carries the three numbers the pick is made from
+    -- macro recall, per-class recall, per-flow benign FPR -- measured on the
+    VALIDATION split only. The held-out test split is not consulted here at all.
     """
-    rows = []
+    rows = {"gbt": [], "cnn": []}
     for alpha in SWEEP_ALPHAS:
         w = class_weights_alpha(ctr, alpha)
-        _, prob = train_gbt(Xtr_s, ytr, Xva_s, seed, sample_weight=w)
-        for thr in SWEEP_THRESHOLDS:
-            pred = (prob >= thr).astype(int)
-            pc = per_class_recall(cva, yva, pred)
-            fpr = benign_fpr(yva, pred, mva)
-            rows.append({
-                "alpha": alpha,
-                "threshold": thr,
-                "macro_recall": pc["macro_recall"],
-                "weighted_recall": pc["weighted_recall"],
-                "per_flow_benign_fpr": fpr["per_flow_fpr"],
-                "per_shape_benign_fpr": fpr["per_shape_fpr"],
-                "meets_fpr_budget": bool(fpr["per_flow_fpr"] <= FPR_BUDGET),
-                "per_class_recall": {k: v["recall"]
-                                     for k, v in pc["per_class"].items()
-                                     if k.upper() != BENIGN_LABEL},
-            })
-        best_at_alpha = max((r for r in rows if r["alpha"] == alpha),
-                            key=lambda r: r["macro_recall"])
-        print(f"  alpha={alpha}: best macro recall {best_at_alpha['macro_recall']} "
-              f"@thr={best_at_alpha['threshold']} "
-              f"(per-flow FPR {best_at_alpha['per_flow_benign_fpr']})")
+        _, gbt_prob = train_gbt(Xtr_s, ytr, Xva_s, seed, sample_weight=w)
+        _, cnn_prob = train_cnn(Xtr_s, ytr, Xva_s, n_feat, epochs, seed,
+                                sample_weight=w)
+        for model, prob in (("gbt", gbt_prob), ("cnn", cnn_prob)):
+            for thr in SWEEP_THRESHOLDS:
+                pred = (prob >= thr).astype(int)
+                pc = per_class_recall(cva, yva, pred)
+                fpr = benign_fpr(yva, pred, mva)
+                rows[model].append({
+                    "alpha": alpha,
+                    "threshold": thr,
+                    "macro_recall": pc["macro_recall"],
+                    "weighted_recall": pc["weighted_recall"],
+                    "per_flow_benign_fpr": fpr["per_flow_fpr"],
+                    "per_shape_benign_fpr": fpr["per_shape_fpr"],
+                    "meets_fpr_budget": bool(fpr["per_flow_fpr"] <= FPR_BUDGET),
+                    "per_class_recall": {k: v["recall"]
+                                         for k, v in pc["per_class"].items()
+                                         if k.upper() != BENIGN_LABEL},
+                })
+            best = max((r for r in rows[model] if r["alpha"] == alpha),
+                       key=lambda r: r["macro_recall"])
+            print(f"  {model} alpha={alpha}: best macro recall "
+                  f"{best['macro_recall']} @thr={best['threshold']} "
+                  f"(per-flow FPR {best['per_flow_benign_fpr']})")
     return rows
 
 
@@ -479,16 +493,23 @@ def main():
         stratify=yrest)
     print(f"  split: train={len(ytr)} val={len(yva)} test={len(yte)}")
 
-    # --- Frontier sweep: alpha x threshold on the validation split ---
+    # --- Frontier sweep: alpha x threshold on validation, BOTH models ---
     print("Frontier sweep (alpha x threshold) on validation ...")
     sweep_scaler = StandardScaler().fit(Xtr)
     frontier = frontier_sweep(
         sweep_scaler.transform(Xtr).astype("float32"), ytr, ctr,
-        sweep_scaler.transform(Xva).astype("float32"), yva, cva, mva, args.seed)
-    chosen, why = choose_operating_point(frontier)
-    alpha_star, thr_star = chosen["alpha"], chosen["threshold"]
-    print(f"  CHOSEN operating point: alpha={alpha_star} threshold={thr_star}")
-    print(f"  {why}")
+        sweep_scaler.transform(Xva).astype("float32"), yva, cva, mva,
+        n_feat, args.epochs, args.seed)
+    chosen, why = {}, {}
+    for model in ("gbt", "cnn"):
+        chosen[model], why[model] = choose_operating_point(frontier[model])
+        print(f"  CHOSEN {model} operating point: "
+              f"alpha={chosen[model]['alpha']} "
+              f"threshold={chosen[model]['threshold']}")
+        print(f"    {why[model]}")
+    gbt_point = (chosen["gbt"]["alpha"], chosen["gbt"]["threshold"])
+    cnn_point = (chosen["cnn"]["alpha"], chosen["cnn"]["threshold"])
+    alpha_star, thr_star = gbt_point  # the PRIMARY (shipped) detector's point
 
     # --- HEADLINE: train split -> held-out TEST at the chosen point ---
     # Shipped models are trained on the 60% train split ONLY (not train+val):
@@ -500,7 +521,7 @@ def main():
         "split at the frontier-chosen operating point. Identical flows cannot "
         "span splits; test rows played no part in selection. Treat as REAL.",
         Xtr, Xte, ytr, yte, ctr, cte, mte, n_feat, args.epochs, args.seed,
-        alpha_star, thr_star)
+        gbt_point, cnn_point)
 
     # --- Reference: random stratified split (optimistic upper bound) ---
     print("Random stratified split -> optimistic upper bound ...")
@@ -510,7 +531,7 @@ def main():
         "random", "Random stratified split. Optimistic upper bound (duplicate "
         "flow bursts leak across train/test).",
         Xtr_r, Xte_r, ytr_r, yte_r, ctr_r, cte_r, mte_r, n_feat, args.epochs,
-        args.seed, alpha_star, thr_star)
+        args.seed, gbt_point, cnn_point)
 
     # --- Reference: group by source IP (DEGENERATE, documented) ---
     print("Group split by source IP -> degenerate reference ...")
@@ -520,7 +541,7 @@ def main():
         "group", "Group split by source IP. DEGENERATE: one IP emits 99.6% of "
         "attacks, so a held-out IP removes whole campaigns. Documented, not fair.",
         X[gtr], X[gte], y[gtr], y[gte], c[gtr], c[gte], m[gte], n_feat,
-        args.epochs, args.seed, alpha_star, thr_star)
+        args.epochs, args.seed, gbt_point, cnn_point)
 
     # --- Ship the DEDUP-split models (headline metrics describe these) ---
     joblib.dump(gbt, config.FLOW_MODEL_PATH)
@@ -554,12 +575,21 @@ def main():
                           "value or serving no longer matches the metrics.",
         "input_shape": [n_feat, 1],
         "class_weighting": f"w ~ 1/n^alpha per class (benign is a class), "
-                           f"alpha={alpha_star}. alpha and threshold were chosen "
-                           f"by maximising validation macro recall subject to "
-                           f"per-flow benign FPR <= {FPR_BUDGET}; see "
-                           f"metrics.json operating_point/frontier.",
+                           f"alpha={alpha_star} for the shipped GBT. alpha and "
+                           f"threshold were chosen by maximising validation "
+                           f"macro recall subject to per-flow benign FPR <= "
+                           f"{FPR_BUDGET}; see metrics.json "
+                           f"operating_point/frontier.",
         "operating_point": {"alpha": alpha_star, "threshold": thr_star,
-                            "selection": why},
+                            "selection": why["gbt"]},
+        "cnn_operating_point": {
+            "alpha": cnn_point[0], "threshold": cnn_point[1],
+            "note": "The baseline Conv1D's OWN frontier point under the same "
+                    "FPR budget -- used only in metrics.json's benchmark. The "
+                    "serving threshold (config.CLASSIFY_THRESHOLD) belongs to "
+                    "the primary GBT; switching PRIMARY_MODEL_TYPE to cnn "
+                    "would require this threshold instead.",
+            "selection": why["cnn"]},
         "dataset": "CIC-IDS-2017 (rdpahalavan/CIC-IDS2017, Network-Flows parquet)",
         "shipped_models": {"gbt": os.path.basename(config.FLOW_MODEL_PATH),
                            "cnn": os.path.basename(config.FLOW_CNN_PATH)},
@@ -575,16 +605,34 @@ def main():
         "primary_model": "gbt",
         "baseline_model": "compact Conv1D",
         "headline_split": "dedup_stratified_test",
+        "benchmark_note": "Each model is reported at its OWN operating point, "
+                          "tuned on validation under the same per-flow FPR "
+                          "budget. Scoring the baseline at the primary's "
+                          "threshold would rig the comparison: an operating "
+                          "point tuned for one model is an arbitrary point on "
+                          "the other's curve.",
         "operating_point": {
-            "alpha": alpha_star,
-            "threshold": thr_star,
             "constraint": f"per-flow benign FPR <= {FPR_BUDGET}, on validation",
-            "selection": why,
-            "validation": chosen,
-            "test_gbt_macro_recall": dedup_res["gbt_per_class"]["macro_recall"],
-            "test_gbt_weighted_recall":
-                dedup_res["gbt_per_class"]["weighted_recall"],
-            "test_gbt_benign_fpr": dedup_res["gbt_benign_fpr"],
+            "gbt": {
+                "alpha": alpha_star,
+                "threshold": thr_star,
+                "selection": why["gbt"],
+                "validation": chosen["gbt"],
+                "test_macro_recall": dedup_res["gbt_per_class"]["macro_recall"],
+                "test_weighted_recall":
+                    dedup_res["gbt_per_class"]["weighted_recall"],
+                "test_benign_fpr": dedup_res["gbt_benign_fpr"],
+            },
+            "cnn": {
+                "alpha": cnn_point[0],
+                "threshold": cnn_point[1],
+                "selection": why["cnn"],
+                "validation": chosen["cnn"],
+                "test_macro_recall": dedup_res["cnn_per_class"]["macro_recall"],
+                "test_weighted_recall":
+                    dedup_res["cnn_per_class"]["weighted_recall"],
+                "test_benign_fpr": dedup_res["cnn_benign_fpr"],
+            },
         },
         "fpr_definition": "per_flow_fpr is the HEADLINE false-positive rate: "
                           "each unique benign shape's error is weighted by how "
@@ -605,9 +653,10 @@ def main():
                        "honest answer and the only basis for a coverage claim. "
                        "For false positives, read gbt_benign_fpr.per_flow_fpr.",
         "frontier": {
-            "note": "Validation-split measurements for every (alpha, threshold) "
-                    "grid point; the operating point was picked from this table "
-                    "and ONLY the chosen point was then scored on test.",
+            "note": "Validation-split measurements for every (model, alpha, "
+                    "threshold) grid point; each model's operating point was "
+                    "picked from its own table and ONLY the chosen points were "
+                    "then scored on test.",
             "alphas": SWEEP_ALPHAS,
             "thresholds": SWEEP_THRESHOLDS,
             "fpr_budget": FPR_BUDGET,
@@ -625,20 +674,25 @@ def main():
 
     print("\nDone. Artifacts in", config.MODEL_DIR)
 
-    print("\nFrontier (validation): alpha  thr  macro  per-flow-FPR  in-budget")
-    for r in frontier:
-        mark = "*" if r is chosen else " "
-        print(f" {mark} {r['alpha']:4.2f}  {r['threshold']:4.2f}  "
-              f"{r['macro_recall']:.4f}  {r['per_flow_benign_fpr']:.6f}  "
-              f"{'yes' if r['meets_fpr_budget'] else 'NO'}")
-    print(f"\nCHOSEN: alpha={alpha_star} threshold={thr_star} -- {why}")
+    for model in ("gbt", "cnn"):
+        print(f"\nFrontier [{model}] (validation): "
+              f"alpha  thr  macro  per-flow-FPR  in-budget")
+        for r in frontier[model]:
+            mark = "*" if r is chosen[model] else " "
+            print(f" {mark} {r['alpha']:4.2f}  {r['threshold']:4.2f}  "
+                  f"{r['macro_recall']:.4f}  {r['per_flow_benign_fpr']:.6f}  "
+                  f"{'yes' if r['meets_fpr_budget'] else 'NO'}")
+        print(f"CHOSEN [{model}]: alpha={chosen[model]['alpha']} "
+              f"threshold={chosen[model]['threshold']} -- {why[model]}")
 
+    for model in ("gbt", "cnn"):
+        pc = dedup_res[f"{model}_per_class"]
+        fpr = dedup_res[f"{model}_benign_fpr"]
+        print(f"\n{model.upper()} held-out TEST at its own point -- "
+              f"macro={pc['macro_recall']} weighted={pc['weighted_recall']} "
+              f"per-flow benign FPR={fpr['per_flow_fpr']} "
+              f"(per-shape {fpr['per_shape_fpr']})")
     pc = dedup_res["gbt_per_class"]
-    fpr = dedup_res["gbt_benign_fpr"]
-    print(f"\nGBT held-out TEST at chosen point -- macro={pc['macro_recall']} "
-          f"weighted={pc['weighted_recall']} "
-          f"per-flow benign FPR={fpr['per_flow_fpr']} "
-          f"(per-shape {fpr['per_shape_fpr']})")
     for cls, v in sorted(pc["per_class"].items(), key=lambda kv: kv[1]["recall"]):
         print(f"  {cls:34s} {v['recall']:.4f}  (n={v['n']})")
     print("\nleakage_flagged:", leak["flagged"] or "none")
