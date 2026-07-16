@@ -29,6 +29,15 @@ FLOW_CNN_PATH = os.path.join(MODEL_DIR, "secids_flow_cnn.keras")      # baseline
 FLOW_SCALER_PATH = os.path.join(MODEL_DIR, "secids_flow_scaler.joblib")
 FLOW_META_PATH = os.path.join(MODEL_DIR, "secids_flow_meta.json")
 
+# --- Stage 2: attack-family attributor (MITRE ATT&CK mapping) ---
+# Multi-class GBT that runs ONLY on flows the binary gate already flagged
+# suspicious, predicting the attack FAMILY from the same 6 features. The
+# family -> ATT&CK technique lookup is static and curated (attack_mapping.py);
+# the ML never invents a technique ID. Trained by train_attributor.py.
+ATTRIBUTOR_MODEL_PATH = os.path.join(MODEL_DIR, "secids_attributor.joblib")
+ATTRIBUTOR_SCALER_PATH = os.path.join(MODEL_DIR, "secids_attributor_scaler.joblib")
+ATTRIBUTOR_META_PATH = os.path.join(MODEL_DIR, "secids_attributor_meta.json")
+
 # Probability of "attack" above this is flagged "suspicious".
 #
 # 0.95 is not a hunch -- it is the operating point chosen by the frontier sweep

@@ -1,0 +1,312 @@
+{
+  "role": "Stage-2 attack-family attributor. Runs ONLY on flows the binary Stage-1 gate flagged suspicious. Family -> ATT&CK technique lookup is static (attack_mapping.py); this model never names a technique itself.",
+  "feature_order": [
+    "duration_s",
+    "protocol",
+    "fwd_packets",
+    "bwd_packets",
+    "fwd_bytes",
+    "bwd_bytes"
+  ],
+  "families": [
+    "botnet",
+    "brute-force",
+    "ddos",
+    "dos",
+    "other",
+    "port-scan",
+    "web-attack"
+  ],
+  "family_map": {
+    "PortScan": "port-scan",
+    "DoS Hulk": "dos",
+    "DoS GoldenEye": "dos",
+    "DoS slowloris": "dos",
+    "DoS Slowhttptest": "dos",
+    "DDoS": "ddos",
+    "FTP-Patator": "brute-force",
+    "SSH-Patator": "brute-force",
+    "Bot": "botnet",
+    "Web Attack - Brute Force": "web-attack",
+    "Web Attack - XSS": "web-attack",
+    "Web Attack - Sql Injection": "web-attack",
+    "Infiltration": "other",
+    "Heartbleed": "other"
+  },
+  "abstain_family": "other",
+  "confidence_threshold": 0.3,
+  "threshold_selection": "Maximises validation coverage (0.9998) subject to accuracy-when-attributed >= 0.95 (achieved 0.9984).",
+  "accuracy_floor": 0.95,
+  "alpha": 0.5,
+  "alpha_selection": "max validation macro-F1 over [0.0, 0.25, 0.5, 0.75, 1.0]",
+  "validation": {
+    "macro_f1": 0.9464,
+    "attribution": {
+      "threshold": 0.3,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65115,
+      "total": 65127
+    }
+  },
+  "test": {
+    "argmax_macro_f1": 0.9487,
+    "attribution": {
+      "threshold": 0.3,
+      "coverage": 0.9999,
+      "accuracy_when_attributed": 0.9983,
+      "attributed": 65118,
+      "total": 65127
+    },
+    "per_family": {
+      "botnet": {
+        "n": 265,
+        "attributed_rate": 1.0,
+        "accuracy_when_attributed": 0.9962,
+        "argmax_recall": 0.9962
+      },
+      "brute-force": {
+        "n": 1480,
+        "attributed_rate": 1.0,
+        "accuracy_when_attributed": 0.9899,
+        "argmax_recall": 0.9899
+      },
+      "ddos": {
+        "n": 25433,
+        "attributed_rate": 1.0,
+        "accuracy_when_attributed": 0.9998,
+        "argmax_recall": 0.9998
+      },
+      "dos": {
+        "n": 37200,
+        "attributed_rate": 0.9999,
+        "accuracy_when_attributed": 0.9981,
+        "argmax_recall": 0.998
+      },
+      "other": {
+        "n": 9,
+        "attributed_rate": 0.2222,
+        "accuracy_when_attributed": 0.0,
+        "argmax_recall": 0.7778
+      },
+      "port-scan": {
+        "n": 322,
+        "attributed_rate": 1.0,
+        "accuracy_when_attributed": 0.9938,
+        "argmax_recall": 0.9938
+      },
+      "web-attack": {
+        "n": 418,
+        "attributed_rate": 1.0,
+        "accuracy_when_attributed": 0.9761,
+        "argmax_recall": 0.9761
+      }
+    },
+    "confusion_labels": [
+      "botnet",
+      "brute-force",
+      "ddos",
+      "dos",
+      "other",
+      "port-scan",
+      "web-attack"
+    ],
+    "confusion_matrix": [
+      [
+        264,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1465,
+        0,
+        1,
+        0,
+        0,
+        14
+      ],
+      [
+        3,
+        0,
+        25427,
+        2,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        2,
+        9,
+        37126,
+        2,
+        58,
+        3
+      ],
+      [
+        0,
+        1,
+        0,
+        1,
+        7,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        1,
+        0,
+        320,
+        1
+      ],
+      [
+        0,
+        3,
+        0,
+        7,
+        0,
+        0,
+        408
+      ]
+    ]
+  },
+  "threshold_sweep_validation": [
+    {
+      "threshold": 0.3,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65115,
+      "total": 65127
+    },
+    {
+      "threshold": 0.35,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65115,
+      "total": 65127
+    },
+    {
+      "threshold": 0.4,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65114,
+      "total": 65127
+    },
+    {
+      "threshold": 0.45,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65114,
+      "total": 65127
+    },
+    {
+      "threshold": 0.5,
+      "coverage": 0.9998,
+      "accuracy_when_attributed": 0.9984,
+      "attributed": 65114,
+      "total": 65127
+    },
+    {
+      "threshold": 0.55,
+      "coverage": 0.9987,
+      "accuracy_when_attributed": 0.9992,
+      "attributed": 65042,
+      "total": 65127
+    },
+    {
+      "threshold": 0.6,
+      "coverage": 0.9978,
+      "accuracy_when_attributed": 0.9996,
+      "attributed": 64986,
+      "total": 65127
+    },
+    {
+      "threshold": 0.65,
+      "coverage": 0.9976,
+      "accuracy_when_attributed": 0.9997,
+      "attributed": 64969,
+      "total": 65127
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.9975,
+      "accuracy_when_attributed": 0.9997,
+      "attributed": 64963,
+      "total": 65127
+    },
+    {
+      "threshold": 0.75,
+      "coverage": 0.9966,
+      "accuracy_when_attributed": 0.9997,
+      "attributed": 64903,
+      "total": 65127
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.9965,
+      "accuracy_when_attributed": 0.9998,
+      "attributed": 64897,
+      "total": 65127
+    },
+    {
+      "threshold": 0.85,
+      "coverage": 0.9964,
+      "accuracy_when_attributed": 0.9998,
+      "attributed": 64891,
+      "total": 65127
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.9957,
+      "accuracy_when_attributed": 0.9998,
+      "attributed": 64845,
+      "total": 65127
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.9952,
+      "accuracy_when_attributed": 0.9999,
+      "attributed": 64817,
+      "total": 65127
+    }
+  ],
+  "dedup_stats": {
+    "attack_rows": 556555,
+    "unique_rows": 325633,
+    "duplicate_rate": 0.4149
+  },
+  "family_counts_unique": {
+    "dos": 185999,
+    "ddos": 127164,
+    "brute-force": 7400,
+    "web-attack": 2089,
+    "port-scan": 1610,
+    "botnet": 1324,
+    "other": 47
+  },
+  "label_counts_raw": {
+    "DoS Hulk": 230123,
+    "PortScan": 158804,
+    "DDoS": 128025,
+    "DoS GoldenEye": 10293,
+    "FTP-Patator": 7935,
+    "SSH-Patator": 5897,
+    "DoS slowloris": 5796,
+    "DoS Slowhttptest": 5499,
+    "Bot": 1956,
+    "Web Attack - Brute Force": 1507,
+    "Web Attack - XSS": 652,
+    "Infiltration": 36,
+    "Web Attack - Sql Injection": 21,
+    "Heartbleed": 11
+  },
+  "dataset": "CIC-IDS-2017 (rdpahalavan/CIC-IDS2017, Network-Flows parquet)",
+  "trained_at": "2026-07-16T16:25:26.188615+00:00"
+}

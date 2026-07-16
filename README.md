@@ -141,6 +141,47 @@ weighting. Per-class recall at the shipped operating point is in
 `models/metrics.json`; **coverage claims must come from that table, not from the
 headline F1.**
 
+### MITRE ATT&CK mapping — two-stage by design
+
+A binary detector cannot name a technique, so attribution is a **separate,
+honestly-scoped second stage**:
+
+* **Stage 1 (unchanged):** the binary GBT gate at its FPR-tuned operating
+  point (α=0.5, thr 0.95) decides *suspicious/normal*. It is the only thing
+  that decides maliciousness, and its FPR discipline is untouched.
+* **Stage 2:** a multi-class GBT **attributor** (`train_attributor.py`,
+  `models/secids_attributor.joblib`) runs **only on flows Stage 1 flagged**,
+  predicting the attack *family* from the same 6 transferable features. The
+  family is then mapped to a technique through a **static, curated lookup**
+  (`attack_mapping.py`) — every ID and name verified against attack.mitre.org;
+  no LLM anywhere near a technique ID.
+
+| family (CIC-IDS classes) | technique | tactic |
+|---|---|---|
+| port-scan (PortScan) | T1046 Network Service Discovery | Discovery |
+| ddos (DDoS) | T1498 Network Denial of Service | Impact |
+| dos (Hulk, GoldenEye, slowloris, Slowhttptest) | T1499 Endpoint Denial of Service | Impact |
+| brute-force (FTP/SSH-Patator) | T1110 Brute Force | Credential Access |
+| botnet (Bot) | T1071 Application Layer Protocol | Command and Control |
+| web-attack (Brute Force/XSS/SQLi) | T1190 Exploit Public-Facing Application | Initial Access |
+
+**Measured reliability** (held-out dedup test split, same methodology as
+Stage 1 — exact-duplicate shapes removed before splitting): argmax macro-F1
+**0.949** across 7 families; per-family recall 0.976–0.9998 for the six mapped
+families. Full confusion matrix and per-family table in
+`models/secids_attributor_meta.json` and `models/confusion_attributor.png`.
+
+**Unattributed when unsure.** The attributor abstains rather than guess: a
+prediction below its validation-chosen confidence threshold, or of the "other"
+grab-bag (Infiltration, Heartbleed — 47 unique shapes, too rare to learn),
+serves as **"malicious — technique unattributed"**, never a forced technique.
+The console's coverage panel reports the unattributed count next to the
+technique counts for the same reason. Two caveats to hold onto: these numbers
+are measured on CIC-IDS-2017 shapes, and attribution is only as good as
+Stage 1's coverage — families the gate rarely flags (the content-based classes
+above) will rarely reach Stage 2 at all, so the mapped table is *potential*
+coverage, not a detection claim.
+
 ---
 
 ## 🖥️ SOC Console
@@ -150,9 +191,11 @@ headline F1.**
 
 One hierarchy, four elements with jobs: a thin stat strip (packets/sec,
 captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
-**threat map + live detection feed** (verdict badges, confidence, a
-suspicious-only filter, new detections ping the map over WebSocket) → traffic
-rate, top origins, and host health charts → the LLM triage chat and event log.
+**threat map + live detection feed** (verdict badges, ATT&CK technique tags on
+flagged flows, confidence, a suspicious-only filter, new detections ping the
+map over WebSocket) → traffic rate, top origins, and host health charts → the
+ATT&CK coverage panel (which techniques have fired, with the unattributed
+count shown beside them), the LLM triage chat, and the event log.
 
 The page is **self-contained by test, not by promise**: no CDN framework, no
 external tile server. Chart.js and the Socket.IO client are vendored under

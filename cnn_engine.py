@@ -20,6 +20,7 @@ import threading
 
 import numpy as np
 
+import attack_mapping
 import config
 
 # Primary model + scaler + meta, loaded once and reused. Lock guards first load
@@ -29,6 +30,14 @@ _scaler = None
 _meta = None
 _cnn = None
 _lock = threading.Lock()
+
+# Stage-2 attributor (multi-class family model), same lazy-load pattern. It is
+# OPTIONAL: if the artifacts are missing, flagged flows simply serve as
+# "technique unattributed" -- Stage 1 never depends on Stage 2.
+_attributor = None
+_attributor_scaler = None
+_attributor_meta = None
+_attributor_failed = False
 
 
 def load_model():
@@ -109,7 +118,79 @@ def classify(features: np.ndarray) -> dict:
     return {"verdict": "normal", "confidence": round(1.0 - attack_prob, 4)}
 
 
+def load_attributor():
+    """Load the Stage-2 attributor once. Returns (model, scaler, meta) or
+    (None, None, None) when the artifacts are absent -- attribution then
+    degrades to 'unattributed', it never blocks detection."""
+    global _attributor, _attributor_scaler, _attributor_meta, _attributor_failed
+    if _attributor is not None or _attributor_failed:
+        return _attributor, _attributor_scaler, _attributor_meta
+    with _lock:
+        if _attributor is not None or _attributor_failed:
+            return _attributor, _attributor_scaler, _attributor_meta
+        try:
+            import joblib
+            model = joblib.load(config.ATTRIBUTOR_MODEL_PATH)
+            scaler = joblib.load(config.ATTRIBUTOR_SCALER_PATH)
+            with open(config.ATTRIBUTOR_META_PATH) as f:
+                meta = json.load(f)
+        except Exception as e:
+            print(f"[WARN] Stage-2 attributor not loaded ({e}). Flagged flows "
+                  f"will serve as 'technique unattributed'.")
+            _attributor_failed = True
+            return None, None, None
+        _attributor, _attributor_scaler, _attributor_meta = model, scaler, meta
+        return _attributor, _attributor_scaler, _attributor_meta
+
+
+def attribute(raw_row: np.ndarray) -> dict:
+    """Stage 2: attack-family attribution for a flow Stage 1 already flagged.
+
+    Takes the UNSCALED feature row (the attributor has its own scaler, fitted
+    on attack rows only). Returns the technique record plus the family and the
+    attributor's confidence.
+
+    HONESTY RULE, enforced here: a prediction below the trained confidence
+    threshold, or of the abstain family ("other"), returns UNATTRIBUTED --
+    "malicious - technique unattributed" -- never a forced technique.
+    """
+    model, scaler, meta = load_attributor()
+    unattributed = {**attack_mapping.UNATTRIBUTED,
+                    "attack_family": None, "attribution_confidence": None}
+    if model is None:
+        return unattributed
+
+    row = scaler.transform(raw_row).astype("float32")
+    proba = model.predict_proba(row)[0]
+    idx = int(proba.argmax())
+    family = str(model.classes_[idx])
+    conf = float(proba[idx])
+
+    threshold = float(meta.get("confidence_threshold", 0.5))
+    if conf < threshold or family == meta.get("abstain_family", "other"):
+        return unattributed
+    return {**attack_mapping.technique_for_family(family),
+            "attack_family": family,
+            "attribution_confidence": round(conf, 4)}
+
+
 def classify_flow(flow) -> dict:
-    """Convenience one-shot: Flow -> verdict. Single entry point the app uses for
-    both live sniffing and (future) pcap replay, so they share one code path."""
-    return classify(extract_features(flow))
+    """Convenience one-shot: Flow -> verdict (+ attribution when suspicious).
+    Single entry point the app uses for both live sniffing and pcap replay, so
+    they share one code path.
+
+    Two-stage by design: the binary Stage-1 gate decides suspicious/normal at
+    its FPR-tuned threshold, UNCHANGED. Only flows it flags are handed to the
+    Stage-2 attributor -- a binary detector cannot name a technique, and the
+    attributor never overrides the gate's verdict.
+    """
+    feats = _feature_dict(flow)
+    raw_row = np.array([[float(feats[name]) for name in config.FEATURE_ORDER]],
+                       dtype="float32")
+    raw_row = np.nan_to_num(raw_row, nan=0.0, posinf=0.0, neginf=0.0)
+
+    _, scaler, _ = load_model()
+    result = classify(scaler.transform(raw_row).astype("float32"))
+    if result["verdict"] == "suspicious":
+        result.update(attribute(raw_row))
+    return result

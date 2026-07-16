@@ -189,18 +189,20 @@ button { font: inherit; cursor: pointer; }
 .panel-rate    { grid-column: span 4; }
 .panel-origins { grid-column: span 4; }
 .panel-host    { grid-column: span 4; }
-.panel-chat    { grid-column: span 6; }
-.panel-log     { grid-column: span 6; }
+.panel-attack  { grid-column: span 4; }
+.panel-chat    { grid-column: span 4; }
+.panel-log     { grid-column: span 4; }
 
 @media (max-width: 1180px) {
     .panel-map, .panel-feed { grid-column: span 12; }
     .panel-rate, .panel-origins, .panel-host { grid-column: span 6; }
+    .panel-attack, .panel-chat, .panel-log { grid-column: span 6; }
 }
 
 @media (max-width: 760px) {
     .console { padding: 12px; gap: 12px; }
     .panel-rate, .panel-origins, .panel-host,
-    .panel-chat, .panel-log { grid-column: span 12; }
+    .panel-attack, .panel-chat, .panel-log { grid-column: span 12; }
     .statstrip { grid-template-columns: repeat(3, 1fr); }
     .stat { padding: 10px 12px; }
     .topbar { padding: 10px 12px; }
@@ -324,9 +326,44 @@ button { font: inherit; cursor: pointer; }
 
 .feed-conf { color: var(--ink3); font-size: 11px; }
 
+.feed-tech { color: var(--warn); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.feed-tech-none { color: var(--ink3); font-style: italic; }
+
 .badge {
     font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
     padding: 2px 8px; border-radius: 4px; border: 1px solid;
+}
+
+/* --- ATT&CK coverage panel --- */
+
+.attack-list { flex: 1; overflow-y: auto; min-height: 140px; max-height: 300px; }
+
+.attack-row {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+    gap: 10px; align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line2);
+    font-family: var(--font-mono); font-size: 12px;
+}
+
+.attack-row:hover { background: var(--bg2); }
+
+.attack-id { color: var(--warn); font-weight: 700; }
+
+.attack-name { color: var(--ink); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.attack-tactic { color: var(--ink3); font-size: 10px; }
+
+.attack-count { color: var(--ink2); }
+
+.attack-empty { padding: 24px 16px; color: var(--ink3); font-size: 12px; }
+
+.attack-foot {
+    padding: 8px 16px;
+    border-top: 1px solid var(--line2);
+    color: var(--ink3); font-size: 11px; font-family: var(--font-mono);
 }
 
 .badge-normal { color: var(--ink3); border-color: var(--line); }

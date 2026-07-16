@@ -29,8 +29,8 @@ SQL_INSERT_DETECTION = """
     INSERT INTO detections
         (src_ip, dst_ip, src_port, dst_port, proto, cnn_verdict, cnn_confidence,
          country, lat, lon, duration_s, fwd_packets, bwd_packets, fwd_bytes,
-         bwd_bytes, summary)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         bwd_bytes, summary, attack_family, technique_id, technique_name, tactic)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # Verdict severity, worst last. The threat map colours a point by the worst
@@ -51,13 +51,20 @@ def write_telemetry(writer, *, ip, country, lat, lon, summary, blacklisted,
 
 def write_detection(writer, *, src_ip, dst_ip, src_port, dst_port, proto,
                     verdict, confidence, country, lat, lon, duration_s,
-                    fwd_packets, bwd_packets, fwd_bytes, bwd_bytes,
-                    summary) -> bool:
-    """Route one classified flow verdict to the detections table."""
+                    fwd_packets, bwd_packets, fwd_bytes, bwd_bytes, summary,
+                    attack_family=None, technique_id=None, technique_name=None,
+                    tactic=None) -> bool:
+    """Route one classified flow verdict to the detections table.
+
+    The four attribution fields default to NULL: "normal" verdicts never carry
+    them, and a flagged flow the Stage-2 attributor declined to name serves as
+    "technique unattributed" (NULL technique_id) rather than a forced guess.
+    """
     return writer.submit(SQL_INSERT_DETECTION,
                          (src_ip, dst_ip, src_port, dst_port, proto, verdict,
                           confidence, country, lat, lon, duration_s, fwd_packets,
-                          bwd_packets, fwd_bytes, bwd_bytes, summary))
+                          bwd_packets, fwd_bytes, bwd_bytes, summary,
+                          attack_family, technique_id, technique_name, tactic))
 
 
 # --- read side --------------------------------------------------------------
@@ -81,7 +88,7 @@ def clamp_page(value) -> int:
 DETECTION_COLUMNS = """
     id, src_ip, dst_ip, src_port, dst_port, proto, cnn_verdict, cnn_confidence,
     country, lat, lon, duration_s, fwd_packets, bwd_packets, fwd_bytes, bwd_bytes,
-    summary, timestamp
+    summary, attack_family, technique_id, technique_name, tactic, timestamp
 """
 
 
@@ -179,6 +186,32 @@ def fetch_threat_map(conn: sqlite3.Connection,
             "last_seen": r["last_seen"],
         })
     return {"points": points, "total_points": len(points)}
+
+
+def fetch_attack_coverage(conn: sqlite3.Connection) -> dict:
+    """ATT&CK coverage: which techniques have actually fired, plus the honesty
+    counter -- how many flagged flows the attributor declined to name.
+
+    Only suspicious detections are counted (attribution never runs on normal
+    flows), and the unattributed bucket is reported side by side with the
+    techniques: hiding it would make the coverage panel a sales pitch.
+    """
+    rows = conn.execute("""
+        SELECT technique_id, technique_name, tactic, attack_family,
+               COUNT(*) AS count, MAX(timestamp) AS last_seen
+        FROM detections
+        WHERE cnn_verdict = ? AND technique_id IS NOT NULL
+        GROUP BY technique_id, technique_name, tactic, attack_family
+        ORDER BY count DESC
+    """, (WORST_VERDICT,)).fetchall()
+    unattributed = conn.execute(
+        "SELECT COUNT(*) FROM detections WHERE cnn_verdict = ? "
+        "AND technique_id IS NULL", (WORST_VERDICT,)).fetchone()[0]
+    return {
+        "techniques": [dict(r) for r in rows],
+        "unattributed": unattributed,
+        "attributed": sum(r["count"] for r in rows),
+    }
 
 
 def fetch_counters(conn: sqlite3.Connection) -> dict:

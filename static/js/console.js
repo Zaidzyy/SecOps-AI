@@ -338,9 +338,20 @@ function feedRow(d) {
     main.appendChild(ipLine);
     main.appendChild(el("div", "feed-geo", cleanGeo(d.country)));
     if (d.summary) main.title = d.summary;
-    row.appendChild(main);
 
     const verdict = d.cnn_verdict || d.verdict || "normal";
+
+    // Stage-2 attribution: only flagged flows carry a technique, and a flagged
+    // flow the attributor declined to name says so instead of guessing.
+    if (verdict === "suspicious") {
+        const tech = el("div",
+            d.technique_id ? "feed-tech" : "feed-tech feed-tech-none",
+            d.technique_id ? `${d.technique_id} ${d.technique_name || ""}`
+                           : "technique unattributed");
+        if (d.tactic) tech.title = `ATT&CK tactic: ${d.tactic}`;
+        main.appendChild(tech);
+    }
+    row.appendChild(main);
     row.appendChild(el("span",
         "badge " + (verdict === "suspicious" ? "badge-suspicious" : "badge-normal"),
         verdict));
@@ -381,6 +392,8 @@ function liveDetection(v) {
             timestamp: new Date().toLocaleTimeString([], { hour12: false }),
             src_ip: v.ip, country: v.country, verdict: v.verdict,
             confidence: v.confidence, summary: v.summary,
+            technique_id: v.technique_id, technique_name: v.technique_name,
+            tactic: v.tactic,
         });
         row.classList.add(suspicious ? "is-new-sus" : "is-new");
         const feed = $("feed");
@@ -404,6 +417,38 @@ const setFilter = (verdict) => {
 };
 $("feed-all").addEventListener("click", () => setFilter(null));
 $("feed-sus").addEventListener("click", () => setFilter("suspicious"));
+
+/* ---------- ATT&CK coverage ---------- */
+
+function coverageRow(t) {
+    const row = el("div", "attack-row");
+    row.appendChild(el("span", "attack-id", t.technique_id));
+    const main = el("div");
+    main.appendChild(el("div", "attack-name", t.technique_name));
+    main.appendChild(el("div", "attack-tactic",
+        `${t.tactic} · family: ${t.attack_family}`));
+    row.appendChild(main);
+    row.appendChild(el("span", "attack-count", fmt(t.count)));
+    row.title = `last seen ${t.last_seen}`;
+    return row;
+}
+
+async function refreshCoverage() {
+    try {
+        const res = await fetch("/attack-coverage");
+        const data = await res.json();
+        const list = $("attack-list");
+        list.replaceChildren(...(data.techniques || []).map(coverageRow));
+        $("attack-empty").hidden = (data.techniques || []).length > 0;
+        // The honesty counter stays visible: flows the attributor declined to
+        // name are part of the coverage story, not a footnote to hide.
+        $("attack-foot").textContent =
+            `${fmt(data.attributed)} attributed · ${fmt(data.unattributed)} ` +
+            `flagged but unattributed`;
+    } catch (e) {
+        console.error("attack coverage refresh failed:", e);
+    }
+}
 
 /* ---------- host health ---------- */
 
@@ -550,5 +595,6 @@ refreshStats();
 refreshGeo();
 refreshFeed();
 refreshLogs();
+refreshCoverage();
 setInterval(refreshStats, 2000);
-setInterval(() => { refreshMap(); refreshGeo(); }, 10000);
+setInterval(() => { refreshMap(); refreshGeo(); refreshCoverage(); }, 10000);

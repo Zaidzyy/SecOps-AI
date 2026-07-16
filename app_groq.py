@@ -429,19 +429,35 @@ def _handle_completed_flow(flow):
     summary = (f"Flow {flow.src_ip}:{flow.src_port} -> {flow.dst_ip}:{flow.dst_port} "
                f"proto={flow.proto} pkts={total_pkts} dur={flow.duration_s:.2f}s")
 
+    # Stage-2 attribution rides along only when Stage 1 flagged the flow;
+    # normal flows carry NULLs, and so do flagged flows the attributor
+    # declined to name ("technique unattributed" -- see cnn_engine.attribute).
     storage.write_detection(
         db_writer, src_ip=src, dst_ip=flow.dst_ip, src_port=flow.src_port,
         dst_port=flow.dst_port, proto=flow.proto, verdict=verdict,
         confidence=confidence, country=country, lat=geo["lat"], lon=geo["lon"],
         duration_s=flow.duration_s, fwd_packets=flow.fwd_packets,
         bwd_packets=flow.bwd_packets, fwd_bytes=flow.fwd_bytes,
-        bwd_bytes=flow.bwd_bytes, summary=summary)
+        bwd_bytes=flow.bwd_bytes, summary=summary,
+        attack_family=result.get("attack_family"),
+        technique_id=result.get("technique_id"),
+        technique_name=result.get("technique_name"),
+        tactic=result.get("tactic"))
 
-    save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}) - {summary}")
+    technique_note = ""
+    if verdict == "suspicious":
+        technique_note = (f" [{result['technique_id']} {result['technique_name']}]"
+                          if result.get("technique_id")
+                          else " [technique unattributed]")
+    save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}){technique_note} - {summary}")
     socketio.emit('cnn_verdict', {
         "ip": src, "verdict": verdict, "confidence": confidence,
         "summary": summary, "country": country,
         "lat": geo["lat"], "lon": geo["lon"],
+        "attack_family": result.get("attack_family"),
+        "technique_id": result.get("technique_id"),
+        "technique_name": result.get("technique_name"),
+        "tactic": result.get("tactic"),
     })
 
 
@@ -878,6 +894,18 @@ def get_network_requests():
     except Exception as e:
         print(f"❌ Error fetching network request table array fields from storage layer: {e}")
         return jsonify({"error": "Failed to safely fetch data arrays from persistent sqlite table parameters"}), 500
+
+
+@app.route('/attack-coverage', methods=['GET'])
+def get_attack_coverage():
+    """ATT&CK coverage panel: which techniques have fired, how often, and how
+    many flagged flows the attributor honestly declined to name."""
+    try:
+        with get_db_connection() as conn:
+            return jsonify(storage.fetch_attack_coverage(conn))
+    except Exception as e:
+        print(f"❌ Error building attack coverage: {e}")
+        return jsonify({"error": "Failed to build attack coverage"}), 500
 
 
 @app.route('/pipeline-stats', methods=['GET'])

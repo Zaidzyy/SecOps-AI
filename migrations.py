@@ -116,6 +116,18 @@ LEGACY_TABLE = "network_requests"
 LEGACY_ARCHIVE = "network_requests_legacy"
 SPLIT_MIGRATION = "0001_split_network_requests"
 
+# Migration 0002: MITRE ATT&CK attribution columns on detections. NULLable on
+# purpose -- rows written before Stage 2 existed, "normal" verdicts (attribution
+# only runs on flagged flows), and flagged flows the attributor declined to
+# name ("technique unattributed") all legitimately carry NULLs here.
+ATTRIBUTION_MIGRATION = "0002_detection_attribution"
+ATTRIBUTION_COLUMNS = [
+    ("attack_family", "TEXT"),
+    ("technique_id", "TEXT"),
+    ("technique_name", "TEXT"),
+    ("tactic", "TEXT"),
+]
+
 
 # --- helpers ----------------------------------------------------------------
 
@@ -227,5 +239,19 @@ def migrate(conn: sqlite3.Connection, verbose: bool = False) -> dict:
             print(f"[OK] Migration {SPLIT_MIGRATION}: moved {counts['detections']} "
                   f"flow verdicts -> detections, {counts['telemetry']} packet rows "
                   f"-> telemetry ({LEGACY_TABLE} archived as {LEGACY_ARCHIVE}).")
+
+    if not applied(conn, ATTRIBUTION_MIGRATION):
+        # Column-guarded as well as ledger-guarded: a DB created fresh by an
+        # older ledger state, or touched by hand, must not fail the ALTER.
+        existing = _columns(conn, "detections")
+        for name, sqltype in ATTRIBUTION_COLUMNS:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE detections ADD COLUMN {name} {sqltype}")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_technique "
+                     "ON detections (technique_id)")
+        _mark_applied(conn, ATTRIBUTION_MIGRATION)
+        if verbose:
+            print(f"[OK] Migration {ATTRIBUTION_MIGRATION}: detections now carries "
+                  f"{', '.join(n for n, _ in ATTRIBUTION_COLUMNS)}.")
     conn.commit()
     return counts
