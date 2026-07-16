@@ -188,6 +188,82 @@ def fetch_threat_map(conn: sqlite3.Connection,
     return {"points": points, "total_points": len(points)}
 
 
+def fetch_detection(conn: sqlite3.Connection, detection_id: int) -> dict | None:
+    """One detection by id, including the cached triage columns. None if the id
+    does not exist. Used by /triage/<id>, which needs the full row (flow stats
+    for the LLM context, triage_json for the cache check)."""
+    row = conn.execute(f"""
+        SELECT {DETECTION_COLUMNS}, triage_json, triage_at
+        FROM detections WHERE id = ?
+    """, (detection_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def save_triage(conn: sqlite3.Connection, detection_id: int, triage_json: str) -> None:
+    """Persist a triage report on its detection. Direct write on the caller's
+    connection (like auth's users table), not via the batched writer: this is a
+    rare, operator-triggered one-row UPDATE whose result the same request must
+    immediately read back -- routing it through the async batch would let a
+    re-open inside the flush window re-bill the LLM."""
+    conn.execute(
+        "UPDATE detections SET triage_json = ?, triage_at = CURRENT_TIMESTAMP "
+        "WHERE id = ?", (triage_json, detection_id))
+
+
+# --- triage tool queries (Feature 2) -----------------------------------------
+# The agent's DB-backed tools. Bounded (LIMITed) and compact by design: their
+# output is spliced into an LLM prompt, so every row costs tokens. Aggregates
+# ride along so the model can reason about scale without paging.
+
+TRIAGE_FLOW_FIELDS = """
+    id, src_ip, dst_ip, src_port, dst_port, proto, cnn_verdict, cnn_confidence,
+    duration_s, fwd_packets, bwd_packets, fwd_bytes, bwd_bytes, timestamp
+"""
+
+
+def flows_for_ip(conn: sqlite3.Connection, ip: str, limit: int = 10) -> dict:
+    """Recent flows (any verdict) involving `ip` as source or destination, plus
+    aggregates: how many total, how many suspicious, how many distinct
+    destination ports it touched (the scan signal)."""
+    rows = conn.execute(f"""
+        SELECT {TRIAGE_FLOW_FIELDS}
+        FROM detections
+        WHERE src_ip = ? OR dst_ip = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+    """, (ip, ip, limit)).fetchall()
+    total, suspicious, dst_ports = conn.execute("""
+        SELECT COUNT(*),
+               SUM(CASE WHEN cnn_verdict = ? THEN 1 ELSE 0 END),
+               COUNT(DISTINCT dst_port)
+        FROM detections WHERE src_ip = ? OR dst_ip = ?
+    """, (WORST_VERDICT, ip, ip)).fetchone()
+    return {
+        "flows": [dict(r) for r in rows],
+        "total_flows": total,
+        "suspicious_flows": suspicious or 0,
+        "distinct_dst_ports": dst_ports,
+    }
+
+
+def suspicious_history_for_ip(conn: sqlite3.Connection, ip: str,
+                              limit: int = 10) -> dict:
+    """Recent SUSPICIOUS detections where `ip` is the source, with their
+    Stage-2 attribution -- the "has this IP misbehaved before, and how" tool."""
+    rows = conn.execute("""
+        SELECT id, dst_ip, dst_port, proto, cnn_confidence, attack_family,
+               technique_id, technique_name, tactic, timestamp
+        FROM detections
+        WHERE src_ip = ? AND cnn_verdict = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+    """, (ip, WORST_VERDICT, limit)).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM detections WHERE src_ip = ? AND cnn_verdict = ?",
+        (ip, WORST_VERDICT)).fetchone()[0]
+    return {"detections": [dict(r) for r in rows], "total_suspicious": total}
+
+
 def fetch_attack_coverage(conn: sqlite3.Connection) -> dict:
     """ATT&CK coverage: which techniques have actually fired, plus the honesty
     counter -- how many flagged flows the attributor declined to name.

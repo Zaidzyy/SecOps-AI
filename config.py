@@ -170,6 +170,26 @@ SOCKETIO_ASYNC_MODE = os.getenv("SECOPS_SOCKETIO_ASYNC_MODE", "threading")
 OLLAMA_URL = os.getenv("SECOPS_OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("SECOPS_OLLAMA_MODEL", "llama3.2")
 
+# --- Agentic triage (Feature 2) ---
+# The on-demand /triage/<id> agent. GROQ_API_KEY is read at request time in
+# triage.py (not here: this module imports before app_groq's load_dotenv()
+# runs, so an import-time read would miss a key that lives in .env).
+#
+# llama-3.3-70b-versatile rather than the chat panel's 8b-instant: the agent
+# must drive OpenAI-style tool calling reliably and emit strict JSON, which
+# the 8b model fumbles. Env-overridable for cost tuning.
+TRIAGE_MODEL = os.getenv("SECOPS_TRIAGE_MODEL", "llama-3.3-70b-versatile")
+
+# HARD cap on tool executions per triage. The loop in triage.py is bounded by
+# construction (a fixed-range for loop); this is the budget it enforces.
+TRIAGE_MAX_TOOL_CALLS = 5
+
+# Per-row LIMIT for the DB-backed tools: their output lands in an LLM prompt,
+# so every row costs tokens.
+TRIAGE_TOOL_ROW_LIMIT = 10
+
+TRIAGE_HTTP_TIMEOUT_S = 30.0
+
 # --- Read API (Phase 3) ---
 # Paged so a client can never ask the DB for an unbounded result set.
 API_PAGE_SIZE_DEFAULT = 50

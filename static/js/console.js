@@ -359,8 +359,107 @@ function feedRow(d) {
     const conf = d.cnn_confidence ?? d.confidence;
     row.appendChild(el("span", "feed-conf",
         conf === undefined || conf === null ? "" : Number(conf).toFixed(2)));
+
+    // On-demand AI triage: suspicious rows only, and only rows that exist in
+    // the DB (live socket rows carry no id until the feed refreshes).
+    if (verdict === "suspicious" && d.id) {
+        const btn = el("button", "btn-triage", "triage");
+        btn.title = "Run AI triage on this detection (advisory)";
+        btn.addEventListener("click", () => openTriage(d.id));
+        row.appendChild(btn);
+    }
     return row;
 }
+
+/* ---------- AI triage modal (Feature 2) ----------
+ * POST /triage/<id> runs the bounded tool-use agent server-side (or returns
+ * the cached report). Everything below renders through DOM text nodes: the
+ * report is LLM output and must never reach innerHTML. */
+
+const SEVERITY_CLASS = {
+    low: "sev-low", medium: "sev-medium", high: "sev-high",
+    critical: "sev-critical",
+};
+
+function triageSection(title) {
+    return el("div", "triage-sec-title", title);
+}
+
+function renderTriage(t, cached, detectionId) {
+    const box = el("div", "triage-report");
+
+    const head = el("div", "triage-headline");
+    head.appendChild(el("span",
+        "sev-badge " + (SEVERITY_CLASS[t.severity] || "sev-unspecified"),
+        t.severity || "unspecified"));
+    head.appendChild(el("span", "triage-meta",
+        `detection #${detectionId} · ${t.model || "?"}` +
+        (cached ? " · cached" : "") +
+        (t.generated_at ? ` · ${t.generated_at}` : "")));
+    box.appendChild(head);
+
+    box.appendChild(triageSection("Summary"));
+    box.appendChild(el("p", "triage-text", t.summary || "—"));
+
+    box.appendChild(triageSection("Likely intent"));
+    box.appendChild(el("p", "triage-text", t.likely_intent || "—"));
+
+    box.appendChild(triageSection("Recommended actions (advisory)"));
+    const actions = el("ol", "triage-actions");
+    for (const a of t.recommended_actions || []) {
+        actions.appendChild(el("li", null, a));
+    }
+    if (!actions.children.length) actions.appendChild(el("li", null, "—"));
+    box.appendChild(actions);
+
+    box.appendChild(triageSection("Evidence (from tool results)"));
+    const ev = el("div", "triage-evidence");
+    for (const e of t.evidence || []) {
+        const row = el("div", "triage-ev-row");
+        row.appendChild(el("span", "triage-ev-tool", e.tool));
+        row.appendChild(el("span", "triage-ev-finding", e.finding));
+        ev.appendChild(row);
+    }
+    if (!ev.children.length) {
+        ev.appendChild(el("div", "triage-ev-row", "no evidence cited"));
+    }
+    box.appendChild(ev);
+
+    const tools = (t.tool_trace || []).map((x) => x.tool).join(", ");
+    box.appendChild(el("div", "triage-foot",
+        `${t.label || "AI-generated triage (advisory)"} · tools run: ${tools || "none"}`));
+    return box;
+}
+
+async function openTriage(id) {
+    const modal = $("triage-modal");
+    const body = $("triage-body");
+    modal.hidden = false;
+    body.replaceChildren(el("div", "triage-loading",
+        "gathering context and generating the report…"));
+    try {
+        const res = await fetch(`/triage/${id}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+            const reason = data.reason ? ` — ${data.reason}` : "";
+            body.replaceChildren(el("div", "triage-error",
+                (data.error || "triage failed") + reason));
+            return;
+        }
+        body.replaceChildren(renderTriage(data.triage, data.cached, data.detection_id));
+    } catch (e) {
+        body.replaceChildren(el("div", "triage-error",
+            "Triage request failed — backend unreachable."));
+    }
+}
+
+$("triage-close").addEventListener("click", () => { $("triage-modal").hidden = true; });
+$("triage-modal").addEventListener("click", (e) => {
+    if (e.target === $("triage-modal")) $("triage-modal").hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") $("triage-modal").hidden = true;
+});
 
 async function refreshFeed() {
     try {

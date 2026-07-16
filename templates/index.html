@@ -160,6 +160,19 @@
 
 </main>
 
+<!-- AI triage report modal (Feature 2). Opened by the Triage action on a
+     suspicious feed row; content is built with DOM text nodes in console.js. -->
+<div class="modal-overlay" id="triage-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="triage-title">
+        <header class="modal-head">
+            <h2 id="triage-title">AI triage</h2>
+            <span class="advisory-tag">AI-generated &middot; advisory</span>
+            <button class="modal-close" id="triage-close" aria-label="Close triage report">&times;</button>
+        </header>
+        <div class="modal-body" id="triage-body"></div>
+    </div>
+</div>
+
 <footer class="foot">
     <span>Detector: gradient-boosted trees on 6 flow features &middot; operating point &alpha;=0.5 / thr 0.95, chosen on a validation frontier</span>
     <span>Scope: volumetric DoS/DDoS + rate-based &middot; per-flow benign FPR budget &le;1% &middot; held-out test FPR 0.15%</span>

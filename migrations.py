@@ -128,6 +128,16 @@ ATTRIBUTION_COLUMNS = [
     ("tactic", "TEXT"),
 ]
 
+# Migration 0003: cached AI triage report on detections (Feature 2). NULL until
+# an operator triggers /triage/<id>; the JSON is persisted so re-opening the
+# report never re-bills the LLM. NULLable by design -- most detections are
+# never triaged.
+TRIAGE_MIGRATION = "0003_detection_triage"
+TRIAGE_COLUMNS = [
+    ("triage_json", "TEXT"),
+    ("triage_at", "DATETIME"),
+]
+
 
 # --- helpers ----------------------------------------------------------------
 
@@ -253,5 +263,15 @@ def migrate(conn: sqlite3.Connection, verbose: bool = False) -> dict:
         if verbose:
             print(f"[OK] Migration {ATTRIBUTION_MIGRATION}: detections now carries "
                   f"{', '.join(n for n, _ in ATTRIBUTION_COLUMNS)}.")
+
+    if not applied(conn, TRIAGE_MIGRATION):
+        existing = _columns(conn, "detections")
+        for name, sqltype in TRIAGE_COLUMNS:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE detections ADD COLUMN {name} {sqltype}")
+        _mark_applied(conn, TRIAGE_MIGRATION)
+        if verbose:
+            print(f"[OK] Migration {TRIAGE_MIGRATION}: detections now carries "
+                  f"{', '.join(n for n, _ in TRIAGE_COLUMNS)}.")
     conn.commit()
     return counts

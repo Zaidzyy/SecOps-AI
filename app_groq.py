@@ -18,6 +18,8 @@ import time
 from dotenv import load_dotenv
 import os
 
+import json
+
 import auth
 import config
 import flow_tracker as ft
@@ -26,6 +28,7 @@ import enrichment
 import migrations
 import pipeline
 import storage
+import triage
 
 load_dotenv()
 
@@ -906,6 +909,46 @@ def get_attack_coverage():
     except Exception as e:
         print(f"❌ Error building attack coverage: {e}")
         return jsonify({"error": "Failed to build attack coverage"}), 500
+
+
+@app.route('/triage/<int:detection_id>', methods=['POST'])
+def triage_detection(detection_id):
+    """On-demand agentic triage for one detection (Feature 2).
+
+    Operator-triggered, never automatic: the bounded tool-use agent in
+    triage.py costs real Groq tokens per run. The report is cached on the
+    detection row, so re-opening it is a DB read, not a re-bill. Behind the
+    auth gate like every other route (default-deny in auth._require_login).
+    All failure modes degrade to a clean JSON error -- 404 for a bad id, 503
+    when Groq is absent/unreachable -- never a crash.
+    """
+    try:
+        with get_db_connection() as conn:
+            det = storage.fetch_detection(conn, detection_id)
+            if det is None:
+                return jsonify({"error": "detection not found"}), 404
+            if det.get("triage_json"):
+                return jsonify({"detection_id": detection_id, "cached": True,
+                                "triage": json.loads(det["triage_json"])})
+
+            try:
+                report = triage.run_triage(det, conn)
+            except triage.TriageUnavailable as e:
+                return jsonify({"error": "triage unavailable",
+                                "reason": str(e)}), 503
+
+            # Direct one-row UPDATE on this connection (see storage.save_triage
+            # for why this bypasses the batched writer).
+            storage.save_triage(conn, detection_id, json.dumps(report))
+            conn.commit()
+
+        save_log(f"AI triage generated for detection #{detection_id}: "
+                 f"severity={report['severity']} ({report['summary']})")
+        return jsonify({"detection_id": detection_id, "cached": False,
+                        "triage": report})
+    except Exception as e:
+        print(f"❌ Error triaging detection {detection_id}: {e}")
+        return jsonify({"error": "triage failed"}), 500
 
 
 @app.route('/pipeline-stats', methods=['GET'])

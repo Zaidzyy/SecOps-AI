@@ -299,7 +299,8 @@ button { font: inherit; cursor: pointer; }
 
 .feed-row {
     display: grid;
-    grid-template-columns: 58px minmax(0, 1fr) auto auto;
+    /* 5th column: the triage action (suspicious rows only; empty otherwise) */
+    grid-template-columns: 58px minmax(0, 1fr) auto auto auto;
     gap: 10px; align-items: center;
     padding: 8px 16px;
     border-bottom: 1px solid var(--line2);
@@ -369,6 +370,110 @@ button { font: inherit; cursor: pointer; }
 .badge-normal { color: var(--ink3); border-color: var(--line); }
 
 .badge-suspicious { color: var(--crit); border-color: rgba(255, 93, 93, 0.5); background: var(--crit-soft); }
+
+/* --- AI triage (Feature 2) --- */
+
+.btn-triage {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px; border-radius: 4px;
+    border: 1px solid var(--line); background: transparent; color: var(--accent);
+}
+.btn-triage:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.modal-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(2, 6, 12, 0.72);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+}
+
+/* display:flex above would defeat the hidden attribute's display:none. */
+.modal-overlay[hidden] { display: none; }
+
+.modal {
+    width: min(680px, 100%); max-height: 84vh;
+    display: flex; flex-direction: column;
+    background: var(--bg1); border: 1px solid var(--line); border-radius: var(--r);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.modal-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+}
+.modal-head h2 {
+    margin: 0; font-family: var(--font-mono);
+    font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink);
+}
+
+.advisory-tag {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--warn); color: var(--warn);
+    margin-right: auto;
+}
+
+.modal-close {
+    border: none; background: transparent; color: var(--ink3);
+    font-size: 20px; line-height: 1; padding: 2px 6px;
+}
+.modal-close:hover { color: var(--ink); }
+
+.modal-body { overflow-y: auto; padding: 16px; }
+
+.triage-loading, .triage-error {
+    font-family: var(--font-mono); font-size: 12px; padding: 24px 8px;
+    text-align: center;
+}
+.triage-loading { color: var(--ink3); }
+.triage-loading::before { content: "◌ "; color: var(--accent); }
+.triage-error { color: var(--crit); }
+
+.triage-headline { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+
+.sev-badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 4px; border: 1px solid;
+}
+.sev-low         { color: var(--ok);   border-color: rgba(51, 200, 150, 0.5); }
+.sev-medium      { color: var(--warn); border-color: rgba(232, 185, 62, 0.5); }
+.sev-high        { color: var(--crit); border-color: rgba(255, 93, 93, 0.5); background: var(--crit-soft); }
+.sev-critical    { color: #fff;        border-color: var(--crit); background: var(--crit); }
+.sev-unspecified { color: var(--ink3); border-color: var(--line); }
+
+.triage-meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }
+
+.triage-sec-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink3);
+    margin: 14px 0 4px;
+}
+
+.triage-text { margin: 0; color: var(--ink); font-size: 13px; }
+
+.triage-actions { margin: 0; padding-left: 20px; color: var(--ink); font-size: 13px; }
+.triage-actions li { margin: 4px 0; }
+
+.triage-evidence { display: flex; flex-direction: column; gap: 6px; }
+
+.triage-ev-row {
+    display: flex; gap: 10px; align-items: baseline;
+    font-size: 12px; padding: 6px 8px;
+    background: var(--bg2); border-radius: 4px; border: 1px solid var(--line2);
+}
+.triage-ev-tool {
+    flex: 0 0 auto; font-family: var(--font-mono); font-size: 10px;
+    color: var(--accent);
+}
+.triage-ev-finding { color: var(--ink2); }
+
+.triage-foot {
+    margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line2);
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink3);
+}
 
 .pager {
     display: flex; align-items: center; justify-content: space-between;
