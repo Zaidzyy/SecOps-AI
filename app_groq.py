@@ -10,7 +10,6 @@ import threading
 import requests
 import re
 import os
-from collections import deque
 # from transformers import TFAutoModel, AutoConfig
 import GPUtil
 from flask_socketio import SocketIO, emit
@@ -22,7 +21,9 @@ import config
 import flow_tracker as ft
 import cnn_engine
 import enrichment
+import migrations
 import pipeline
+import storage
 
 load_dotenv()
 
@@ -65,18 +66,14 @@ _flow_lock = threading.Lock()
 # The sniff thread does capture ONLY; everything expensive (geo/reputation HTTP,
 # flow tracking, classification, DB writes) happens downstream.
 capture_queue = pipeline.DropCounterQueue(maxsize=config.CAPTURE_QUEUE_MAX)
-db_writer = pipeline.BatchedDBWriter('system_metrics.db')
+db_writer = pipeline.BatchedDBWriter(config.DB_PATH)
 
-_SQL_INSERT_TELEMETRY = """
-    INSERT INTO network_requests (ip, type, country, summary, blacklisted, attacks, reports)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-"""
-_SQL_INSERT_FLOW = """
-    INSERT INTO network_requests
-        (ip, type, country, summary, blacklisted, attacks, reports,
-         cnn_verdict, cnn_confidence)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
+# Packets/sec, sampled off the capture counter on its own clock (see
+# pipeline.RateTracker for why it is not measured between /stats reads).
+capture_rate = pipeline.RateTracker(lambda: capture_queue.offered)
+
+# Row->table routing lives in storage.py; the writer stays a generic
+# (sql, params) pump. See storage.write_telemetry / storage.write_detection.
 _SQL_INSERT_LOG = "INSERT INTO logs (timestamp, log) VALUES (?, ?)"
 _SQL_INSERT_METRIC = """
     INSERT INTO metrics (timestamp, cpu, memory, disk, network) VALUES (?, ?, ?, ?, ?)
@@ -115,6 +112,7 @@ def start_pipeline():
         if _pipeline_started:
             return
         db_writer.start()
+        capture_rate.start()
         for i in range(config.ENRICHMENT_WORKERS):
             t = threading.Thread(target=_enrichment_worker,
                                  name=f"enrich-{i}", daemon=True)
@@ -128,6 +126,7 @@ def pipeline_stats() -> dict:
     about: packets the sniffer had to discard because enrichment fell behind."""
     return {
         "capture": capture_queue.stats(),
+        "packets_per_sec": round(capture_rate.rate(), 2),
         "db_writer": db_writer.stats(),
         "enrichment_cache": enrichment.stats(),
         "open_flows": len(flow_tracker),
@@ -138,70 +137,17 @@ ollama_client = OllamaClient(base_url="http://localhost:11434")
 
 
 def get_db_connection():
-    conn = sqlite3.connect('system_metrics.db', check_same_thread=False)
+    conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def initialize_database():
+    """Create/upgrade the schema. Idempotent -- see migrations.py, which also
+    keeps WAL on and splits the old mixed network_requests table into
+    telemetry + detections without losing a row."""
     with get_db_connection() as conn:
-        # WAL lets the dashboard's readers run concurrently with the single DB
-        # writer instead of blocking on it. It is a persistent DB-level setting.
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS network_requests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip TEXT,
-                type TEXT,
-                country TEXT,
-                summary TEXT,
-                blacklisted TEXT,
-                attacks INTEGER,
-                reports INTEGER,
-                cnn_verdict TEXT,
-                cnn_confidence REAL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        # Migration for existing DBs: add the CNN verdict columns if missing.
-        # SQLite has no "ADD COLUMN IF NOT EXISTS", so check PRAGMA first.
-        existing_cols = {row["name"] for row in
-                         conn.execute("PRAGMA table_info(network_requests)").fetchall()}
-        if "cnn_verdict" not in existing_cols:
-            conn.execute("ALTER TABLE network_requests ADD COLUMN cnn_verdict TEXT")
-        if "cnn_confidence" not in existing_cols:
-            conn.execute("ALTER TABLE network_requests ADD COLUMN cnn_confidence REAL")
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_network_requests_timestamp ON network_requests (timestamp);
-        """)
-        # logs table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                log TEXT
-            );
-        """)
-        # Index for Logs
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs (timestamp);
-        """)
-        # Tabele for system
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                cpu REAL,
-                memory REAL,
-                disk REAL,
-                network INTEGER
-            );
-        """)
-        # Index for metrics
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics (timestamp);
-        """)
-        conn.commit()
+        migrations.migrate(conn, verbose=True)
 
 
 initialize_database()
@@ -212,9 +158,6 @@ initialize_database()
 # round trip on the sniff thread -- the main reason capture fell behind.
 get_ip_country = enrichment.get_ip_country
 
-
-MAX_NETWORK_REQUESTS = 1000
-network_requests = deque(maxlen=MAX_NETWORK_REQUESTS)
 
 @app.route('/system-info', methods=['GET'])
 def system_info():
@@ -322,7 +265,9 @@ def fetch_recent_logs():
 
 def fetch_recent_network_data():
     with get_db_connection() as conn:
-        network_data = conn.execute("SELECT ip, country, summary FROM network_requests ORDER BY timestamp DESC LIMIT 5").fetchall()
+        network_data = conn.execute(
+            "SELECT ip, country, summary FROM telemetry "
+            "ORDER BY timestamp DESC, id DESC LIMIT 5").fetchall()
     return [{"ip": request["ip"], "country": request["country"], "summary": request["summary"]} for request in network_data]
 
 
@@ -355,14 +300,15 @@ def _record_packet_telemetry(packet):
     ip = packet[IP].src
     summary = packet.summary()
 
-    country = enrichment.get_ip_country(ip)
+    geo = enrichment.get_ip_geo(ip)
+    country = geo["country"]
     reputation = enrichment.check_ip_reputation(ip)
     is_blacklisted = reputation["blacklisted"]
 
-    db_writer.submit(_SQL_INSERT_TELEMETRY,
-                     (ip, "IPv4", country, summary,
-                      "Yes" if is_blacklisted else "No",
-                      reputation["attacks"], reputation["reports"]))
+    storage.write_telemetry(
+        db_writer, ip=ip, country=country, lat=geo["lat"], lon=geo["lon"],
+        summary=summary, blacklisted="Yes" if is_blacklisted else "No",
+        attacks=reputation["attacks"], reports=reputation["reports"])
 
     log_message = (f"Network Packet Ingested from source address: {ip} ({country}) "
                    f"- Target Infrastructure Blacklisted State: {is_blacklisted}")
@@ -384,20 +330,28 @@ def _handle_completed_flow(flow):
     verdict = result["verdict"]
     confidence = float(result["confidence"])
     src = flow.src_ip
-    # TTL-cached; for a flow whose packets were just enriched this is a cache hit.
-    country = enrichment.get_ip_country(src)
+    # TTL-cached; for a flow whose packets were just enriched this is a cache hit,
+    # so the map gets coordinates without a second round trip.
+    geo = enrichment.get_ip_geo(src)
+    country = geo["country"]
 
     total_pkts = flow.fwd_packets + flow.bwd_packets
     summary = (f"Flow {flow.src_ip}:{flow.src_port} -> {flow.dst_ip}:{flow.dst_port} "
                f"proto={flow.proto} pkts={total_pkts} dur={flow.duration_s:.2f}s")
 
-    db_writer.submit(_SQL_INSERT_FLOW,
-                     (src, "FLOW", country, summary, "No", 0, 0, verdict, confidence))
+    storage.write_detection(
+        db_writer, src_ip=src, dst_ip=flow.dst_ip, src_port=flow.src_port,
+        dst_port=flow.dst_port, proto=flow.proto, verdict=verdict,
+        confidence=confidence, country=country, lat=geo["lat"], lon=geo["lon"],
+        duration_s=flow.duration_s, fwd_packets=flow.fwd_packets,
+        bwd_packets=flow.bwd_packets, fwd_bytes=flow.fwd_bytes,
+        bwd_bytes=flow.bwd_bytes, summary=summary)
 
     save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}) - {summary}")
     socketio.emit('cnn_verdict', {
         "ip": src, "verdict": verdict, "confidence": confidence,
         "summary": summary, "country": country,
+        "lat": geo["lat"], "lon": geo["lon"],
     })
 
 
@@ -672,22 +626,91 @@ def chat_with_groq():
 
 
 
+# --- Read API ---------------------------------------------------------------
+# Three endpoints, three questions: /detections "what is bad?", /threat-map
+# "where is it?", /stats "how is the pipeline doing?". Telemetry stays queryable
+# at /telemetry but never leaks into the detection feed -- keeping 46k packet
+# rows out of the operator's view is the entire point of the table split.
+
+@app.route('/detections', methods=['GET'])
+def get_detections():
+    """Paginated detection feed, newest first, with verdict + confidence + geo.
+
+    ?page=1&page_size=50&verdict=suspicious
+    """
+    try:
+        with get_db_connection() as conn:
+            return jsonify(storage.fetch_detections(
+                conn,
+                page=request.args.get('page', 1),
+                page_size=request.args.get('page_size', config.API_PAGE_SIZE_DEFAULT),
+                verdict=request.args.get('verdict'),
+            ))
+    except Exception as e:
+        print(f"❌ Error fetching detections: {e}")
+        return jsonify({"error": "Failed to fetch detections"}), 500
+
+
+@app.route('/threat-map', methods=['GET'])
+def get_threat_map():
+    """Detections aggregated to map points: lat, lon, country, count, worst
+    verdict. Points without coordinates are omitted, never plotted at 0,0."""
+    try:
+        with get_db_connection() as conn:
+            return jsonify(storage.fetch_threat_map(conn))
+    except Exception as e:
+        print(f"❌ Error building threat map: {e}")
+        return jsonify({"error": "Failed to build threat map"}), 500
+
+
+@app.route('/stats', methods=['GET'])
+def get_stats():
+    """Live counters for the stat header: packets/sec, unique IPs, drops,
+    suspicious count -- plus the full pipeline health block.
+
+    This is the consolidated endpoint; /pipeline-stats is kept as an alias for
+    the existing dashboard and returns the same pipeline sub-block.
+    """
+    try:
+        with get_db_connection() as conn:
+            counters = storage.fetch_counters(conn)
+        pipe = pipeline_stats()
+        return jsonify({
+            "packets_per_sec": pipe["packets_per_sec"],
+            "packets_captured": pipe["capture"]["offered"],
+            "packets_dropped": pipe["capture"]["dropped"],
+            **counters,
+            "pipeline": pipe,
+        })
+    except Exception as e:
+        print(f"❌ Error fetching stats: {e}")
+        return jsonify({"error": "Failed to fetch stats"}), 500
+
+
+@app.route('/telemetry', methods=['GET'])
+def get_telemetry():
+    """Raw per-packet telemetry, paginated. Separate from /detections by design."""
+    try:
+        with get_db_connection() as conn:
+            return jsonify(storage.fetch_telemetry(
+                conn,
+                page=request.args.get('page', 1),
+                page_size=request.args.get('page_size', config.API_PAGE_SIZE_DEFAULT),
+            ))
+    except Exception as e:
+        print(f"❌ Error fetching telemetry: {e}")
+        return jsonify({"error": "Failed to fetch telemetry"}), 500
+
+
 @app.route('/network-requests', methods=['GET'])
 def get_network_requests():
+    """Back-compat for the current dashboard, which predates the table split.
+    Serves telemetry as a bare list, the shape that template expects. New
+    consumers should use /telemetry (paged envelope) or /detections."""
     try:
-        page = int(request.args.get('page', 1))
-        page_size = 50
-        offset = (page - 1) * page_size
         with get_db_connection() as conn:
-            requests = conn.execute("""
-                SELECT ip, type, country, summary, blacklisted, attacks, reports,
-                       cnn_verdict, cnn_confidence, timestamp
-                FROM network_requests
-                ORDER BY timestamp DESC
-                LIMIT ? OFFSET ?
-            """, (page_size, offset)).fetchall()
-        data = [dict(request) for request in requests]
-        return jsonify(data)
+            page = storage.fetch_telemetry(conn, page=request.args.get('page', 1))
+        return jsonify(page["items"])
     except Exception as e:
         print(f"❌ Error fetching network request table array fields from storage layer: {e}")
         return jsonify({"error": "Failed to safely fetch data arrays from persistent sqlite table parameters"}), 500
@@ -695,8 +718,8 @@ def get_network_requests():
 
 @app.route('/pipeline-stats', methods=['GET'])
 def get_pipeline_stats():
-    """Pipeline health, including the dropped-packet counter. Feeds the Phase 3
-    stat header; exposed now so drops are observable rather than silent."""
+    """Pipeline health, including the dropped-packet counter. Alias kept for the
+    existing dashboard; /stats is the consolidated endpoint."""
     return jsonify(pipeline_stats())
 
 
@@ -730,9 +753,12 @@ if __name__ == '__main__':
     if len(sys.argv) >= 3 and sys.argv[1] == '--replay':
         pcap_path = sys.argv[2]
         print(f"Replaying {pcap_path} through the flow-detection pipeline ...")
-        replayed = replay_pcap(pcap_path)
-        print(f"Done. Replayed {replayed} packets; flow verdicts written to "
-              f"system_metrics.db and emitted over WebSocket.")
+        # with_telemetry=True: replay must exercise the SAME enrichment the live
+        # sniffer does, or it fills detections while leaving telemetry and the
+        # map empty -- which is precisely the demo we need it to produce.
+        replayed = replay_pcap(pcap_path, with_telemetry=True)
+        print(f"Done. Replayed {replayed} packets -> {config.DB_PATH}: "
+              f"telemetry + detections written, verdicts emitted over WebSocket.")
         sys.exit(0)
 
     print("="*75)

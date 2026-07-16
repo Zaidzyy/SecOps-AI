@@ -34,6 +34,15 @@ PRIVATE_LABEL = "Internal/Private Range (Non-Routable)"
 UNKNOWN_LABEL = "Resolution Timeout/Error"
 NO_REPUTATION = {"blacklisted": False, "attacks": 0, "reports": 0}
 
+# Geo results are dicts, not strings: the threat map needs coordinates, and
+# lat/lon arrive in the SAME geolocation-db.com response the country came from --
+# so capturing them costs nothing extra and stays inside the one-lookup-per-IP-
+# per-TTL-window guarantee. lat/lon are None whenever we have no fix (private
+# ranges, upstream failure, or a response without usable coordinates); callers
+# must treat "no coordinates" as normal rather than as an error.
+PRIVATE_GEO = {"country": PRIVATE_LABEL, "lat": None, "lon": None}
+UNKNOWN_GEO = {"country": UNKNOWN_LABEL, "lat": None, "lon": None}
+
 _geo_cache: TTLCache = TTLCache(maxsize=config.GEO_CACHE_MAX, ttl=config.GEO_CACHE_TTL_S)
 _rep_cache: TTLCache = TTLCache(maxsize=config.REP_CACHE_MAX, ttl=config.REP_CACHE_TTL_S)
 _lock = threading.Lock()
@@ -123,12 +132,30 @@ def _cached_lookup(cache: TTLCache, key_ns: str, ip: str, fetch, default):
     return value
 
 
-def _fetch_geo(ip: str) -> str:
+def _coord(value) -> float | None:
+    """geolocation-db.com returns latitude/longitude as numbers when it has a fix
+    and as the string "Not found" when it doesn't, so a bare float() would raise
+    on a perfectly ordinary response. Anything non-numeric means "no fix"."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else f          # reject NaN
+
+
+def _fetch_geo(ip: str) -> dict:
     r = requests.get(f"https://geolocation-db.com/json/{ip}&position=true",
                      timeout=config.ENRICHMENT_HTTP_TIMEOUT_S)
     d = r.json()
-    return (f"{d.get('country_name', 'Unknown')}, {d.get('city', 'Unknown')}, "
-            f"{d.get('state', 'Unknown')}")
+    # `or` rather than dict.get's default: the API sends the keys with an explicit
+    # null for IPs it can only place at country level, and get(k, "Unknown") returns
+    # that null -- which rendered real rows as "Singapore, None, None".
+    return {
+        "country": (f"{d.get('country_name') or 'Unknown'}, "
+                    f"{d.get('city') or 'Unknown'}, {d.get('state') or 'Unknown'}"),
+        "lat": _coord(d.get("latitude")),
+        "lon": _coord(d.get("longitude")),
+    }
 
 
 def _fetch_reputation(ip: str) -> dict:
@@ -142,12 +169,22 @@ def _fetch_reputation(ip: str) -> dict:
     return {"blacklisted": attacks > 0, "attacks": attacks, "reports": reports}
 
 
-def get_ip_country(ip: str) -> str:
-    """Geo string for an IP. Cached for GEO_CACHE_TTL_S; never hits the network
-    for private/excluded addresses."""
+def get_ip_geo(ip: str) -> dict:
+    """{"country": str, "lat": float|None, "lon": float|None} for an IP.
+
+    Cached for GEO_CACHE_TTL_S and single-flighted, so an IP costs at most one
+    HTTP round trip per window no matter how many packets or workers ask for it.
+    Never hits the network for private/excluded addresses.
+    """
     if not is_enrichable(ip):
-        return PRIVATE_LABEL
-    return _cached_lookup(_geo_cache, "geo", ip, _fetch_geo, UNKNOWN_LABEL)
+        return dict(PRIVATE_GEO)
+    return dict(_cached_lookup(_geo_cache, "geo", ip, _fetch_geo, UNKNOWN_GEO))
+
+
+def get_ip_country(ip: str) -> str:
+    """Just the country string, for callers (logs, LLM context) that have no use
+    for coordinates. Shares get_ip_geo's cache entry -- it is not a second lookup."""
+    return get_ip_geo(ip)["country"]
 
 
 def check_ip_reputation(ip: str) -> dict:

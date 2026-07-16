@@ -26,7 +26,7 @@ import queue
 import sqlite3
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import config
 
@@ -59,6 +59,12 @@ class DropCounterQueue:
             return False
 
     def put_blocking(self, item, timeout: float | None = None) -> None:
+        # Counts toward `offered` exactly like offer() does: `offered` means
+        # "packets this queue accepted", and it feeds packets/sec and the /stats
+        # header. Counting only the offer() path made replay -- which is the whole
+        # demo path -- report 0 packets captured while 264 flowed through it.
+        with self._lock:
+            self._offered += 1
         self._q.put(item, timeout=timeout)
 
     def get(self, timeout: float | None = None):
@@ -87,6 +93,54 @@ class DropCounterQueue:
         with self._lock:
             return {"offered": self._offered, "dropped": self._dropped,
                     "queued": self._q.qsize()}
+
+
+class RateTracker(threading.Thread):
+    """Samples a monotonically-increasing counter on a fixed interval and reports
+    its rate of change over a trailing window.
+
+    This is a thread rather than "remember the last value the caller saw" on
+    purpose: /stats is polled by however many dashboards happen to be open, at
+    whatever interval they like, and a rate computed from the gap between reads
+    would change meaning with the number of viewers -- two browsers would each
+    see roughly half the true packet rate. Sampling on our own clock makes
+    packets/sec a property of the traffic instead of a property of the audience.
+    """
+
+    def __init__(self, source, interval: float = config.RATE_SAMPLE_INTERVAL_S,
+                 window: float = config.RATE_WINDOW_S, clock=time.monotonic):
+        super().__init__(name="rate-tracker", daemon=True)
+        self._source = source
+        self._interval = interval
+        self._clock = clock
+        # +2: enough samples to always span the full window, never unbounded.
+        self._samples: deque = deque(maxlen=int(window / max(interval, 0.001)) + 2)
+        self._lock = threading.Lock()
+        self._stop_evt = threading.Event()
+
+    def sample(self) -> None:
+        with self._lock:
+            self._samples.append((self._clock(), self._source()))
+
+    def rate(self) -> float:
+        """Units per second across the trailing window, 0.0 until two samples
+        exist (we refuse to guess a rate from a single point)."""
+        with self._lock:
+            if len(self._samples) < 2:
+                return 0.0
+            (t0, c0), (t1, c1) = self._samples[0], self._samples[-1]
+        dt = t1 - t0
+        if dt <= 0:
+            return 0.0
+        return max(0.0, (c1 - c0) / dt)
+
+    def run(self) -> None:
+        self.sample()
+        while not self._stop_evt.wait(self._interval):
+            self.sample()
+
+    def stop(self) -> None:
+        self._stop_evt.set()
 
 
 _STOP = object()

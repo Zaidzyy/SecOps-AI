@@ -197,6 +197,41 @@ pipeline defect.
 - **Real-time monitoring**: Receive live metrics, network activity, and AI-generated alerts in real-time.
 - **Customizable API**: Integrate with Groq to leverage high-performance AI analysis.
 
+## Data Model & Read API
+
+Captured data lives in two tables, split by the question they answer:
+
+| Table | Question | Contents |
+| --- | --- | --- |
+| `telemetry` | *What did we see?* | One row per enriched packet: IP, country, lat/lon, summary, reputation. |
+| `detections` | *What is bad?* | One row per classified flow: 5-tuple, verdict, confidence, geo, flow features. |
+
+These were previously one `network_requests` table separated by a `type` column,
+which buried a few thousand flow verdicts under ~15x their volume in packet
+noise. `migrations.py` splits existing databases automatically and idempotently
+on startup; the original table is archived as `network_requests_legacy`, not
+dropped.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /detections?page=&page_size=&verdict=` | Paginated detection feed, newest first. |
+| `GET /threat-map` | Detections aggregated to map points: lat, lon, country, count, worst verdict. |
+| `GET /stats` | Live counters: packets/sec, unique IPs, drops, suspicious count, pipeline health. |
+| `GET /telemetry?page=&page_size=` | Raw per-packet telemetry, kept queryable but separate. |
+
+### Demo data
+
+`samples/heartbleed-excerpt.pcap` is 100% loopback traffic, so it performs zero
+geo lookups and produces an empty map. For a populated demo, replay the
+public-IP capture instead — its source addresses are real and routable, so
+enrichment resolves genuine coordinates across ~14 countries:
+
+```bash
+python app_groq.py --replay samples/demo-public-ips.pcap
+```
+
+Regenerate it with `python scripts/make_demo_pcap.py`.
+
 ## License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
 ```

@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline import BatchedDBWriter, DropCounterQueue  # noqa: E402
+from pipeline import BatchedDBWriter, DropCounterQueue, RateTracker  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -85,6 +85,109 @@ def test_put_blocking_applies_backpressure_for_file_replay():
     assert done.wait(2.0), "put_blocking never completed after space freed"
     assert q.dropped == 0
     t.join(1.0)
+
+
+def test_put_blocking_counts_toward_offered():
+    """`offered` drives packets/sec and the /stats header. Counting only offer()
+    made pcap replay -- the demo path -- report 0 packets captured while hundreds
+    flowed through it."""
+    q = DropCounterQueue(maxsize=10)
+    for i in range(5):
+        q.put_blocking(i)
+    assert q.offered == 5
+    assert q.stats() == {"offered": 5, "dropped": 0, "queued": 5}
+
+    q.offer("live")
+    assert q.offered == 6, "offer() and put_blocking() must count the same way"
+
+
+# --------------------------------------------------------------------------
+# packets/sec sampler
+# --------------------------------------------------------------------------
+class FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+    def advance(self, dt):
+        self.t += dt
+
+
+def test_rate_is_measured_over_the_sampling_window():
+    """100 packets per tick over 5 ticks of 1s => 100/sec."""
+    clock = FakeClock()
+    counter = {"n": 0}
+    r = RateTracker(lambda: counter["n"], interval=1.0, window=30.0, clock=clock)
+
+    for _ in range(5):
+        r.sample()
+        counter["n"] += 100
+        clock.advance(1.0)
+    r.sample()
+
+    assert r.rate() == pytest.approx(100.0)
+
+
+def test_rate_is_zero_until_two_samples_exist():
+    """One data point is not a rate; refuse to guess."""
+    clock = FakeClock()
+    r = RateTracker(lambda: 500, interval=1.0, window=30.0, clock=clock)
+    assert r.rate() == 0.0
+    r.sample()
+    assert r.rate() == 0.0, "a single sample cannot imply a rate"
+
+
+def test_rate_does_not_depend_on_who_reads_it():
+    """The whole reason this is a sampler thread: /stats may be polled by any
+    number of dashboards at any interval, and the packet rate must not change
+    because someone opened a second browser tab."""
+    clock = FakeClock()
+    counter = {"n": 0}
+    r = RateTracker(lambda: counter["n"], interval=1.0, window=30.0, clock=clock)
+
+    for _ in range(4):
+        r.sample()
+        counter["n"] += 50
+        clock.advance(1.0)
+    r.sample()
+
+    assert r.rate() == r.rate() == pytest.approx(50.0), "reading changed the value"
+
+
+def test_rate_window_is_bounded():
+    """Samples must not accumulate forever in a long-running process."""
+    clock = FakeClock()
+    r = RateTracker(lambda: 1, interval=1.0, window=10.0, clock=clock)
+    for _ in range(1000):
+        r.sample()
+        clock.advance(1.0)
+    assert len(r._samples) <= 12
+
+
+def test_rate_falls_back_to_zero_on_a_stalled_clock():
+    clock = FakeClock()
+    r = RateTracker(lambda: 7, interval=1.0, window=30.0, clock=clock)
+    r.sample()
+    r.sample()                      # same instant, no elapsed time
+    assert r.rate() == 0.0, "a zero-length window must not divide by zero"
+
+
+def test_rate_thread_samples_on_its_own():
+    counter = {"n": 0}
+    r = RateTracker(lambda: counter["n"], interval=0.02, window=5.0)
+    r.start()
+    try:
+        deadline = time.time() + 2
+        while time.time() < deadline and len(r._samples) < 3:
+            counter["n"] += 10
+            time.sleep(0.01)
+        assert len(r._samples) >= 3, "sampler thread never sampled"
+        assert r.rate() > 0
+    finally:
+        r.stop()
+        r.join(1.0)
 
 
 # --------------------------------------------------------------------------

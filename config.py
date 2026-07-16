@@ -8,6 +8,11 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# The database. Absolute by default so the app opens the SAME file regardless of
+# the working directory it was launched from; SECOPS_DB overrides it, which is how
+# the tests point the app at a throwaway DB instead of the real one.
+DB_PATH = os.getenv("SECOPS_DB", os.path.join(BASE_DIR, "system_metrics.db"))
+
 # --- Our own trained flow classifier (replaces the borrowed SecIDS-CNN.h5) ---
 # We do NOT use SecIDS-CNN.h5 for inference: its 10-feature training contract
 # (feature names, order, and scaler) was never published, so its verdicts on
@@ -83,3 +88,19 @@ GEO_CACHE_MAX = 16384
 REP_CACHE_TTL_S = 900
 REP_CACHE_MAX = 16384
 ENRICHMENT_HTTP_TIMEOUT_S = 4.0
+
+# --- Read API (Phase 3) ---
+# Paged so a client can never ask the DB for an unbounded result set.
+API_PAGE_SIZE_DEFAULT = 50
+API_PAGE_SIZE_MAX = 500
+
+# Threat-map aggregation. Coordinates are rounded to this many decimals before
+# grouping, so many detections from one city collapse into ONE map point instead
+# of a pile of overlapping markers. 1 decimal ~= 11 km.
+THREAT_MAP_PRECISION = 1
+THREAT_MAP_MAX_POINTS = 500
+
+# Packets/sec is measured from a sampler thread rather than from whoever happens
+# to call /stats, so the number does not depend on how often the UI polls.
+RATE_SAMPLE_INTERVAL_S = 1.0
+RATE_WINDOW_S = 30.0

@@ -14,6 +14,10 @@ Output is NOT committed (see .gitignore: *.pcap) -- regenerate it on demand:
 
     python scripts/make_bench_pcap.py /tmp/bench.pcap 300 2
     python scripts/bench_pipeline.py /tmp/bench.pcap 10
+
+The flow builders below are also imported by make_demo_pcap.py, which uses real
+routable IPs instead of random ones. Everything here is importable: the CLI runs
+only under __main__.
 """
 import ipaddress
 import random
@@ -23,14 +27,10 @@ from scapy.all import wrpcap
 from scapy.layers.inet import IP, TCP
 from scapy.packet import Raw
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else "bench.pcap"
-N_IPS = int(sys.argv[2]) if len(sys.argv) > 2 else 300
-FLOWS_PER_IP = int(sys.argv[3]) if len(sys.argv) > 3 else 2
-
-rng = random.Random(1337)          # deterministic: same capture every run
+SERVER = "93.184.216.34"
 
 
-def public_ip() -> str:
+def public_ip(rng: random.Random) -> str:
     """Random IPv4 that `ipaddress` agrees is globally routable. Anything private,
     loopback, multicast, reserved or link-local would skip enrichment entirely and
     silently invalidate the benchmark."""
@@ -43,46 +43,80 @@ def public_ip() -> str:
             return ip
 
 
-ips: list[str] = []
-seen: set[str] = set()
-while len(ips) < N_IPS:
-    ip = public_ip()
-    if ip not in seen:
-        seen.add(ip)
-        ips.append(ip)
+def _pkt(src, dst, sport, dport, flags, payload=b""):
+    return (IP(src=src, dst=dst) /
+            TCP(sport=sport, dport=dport, flags=flags) /
+            (Raw(load=payload) if payload else b""))
 
-SERVER = "93.184.216.34"
-packets = []
-t0 = 1_600_000_000.0
 
-for i, src in enumerate(ips):
-    for f in range(FLOWS_PER_IP):
-        sport = 40000 + (i * 7 + f * 13) % 20000
-        base = t0 + i * 0.001 + f * 0.4
+def http_flow(src: str, sport: int, base_ts: float, server: str = SERVER,
+              dport: int = 80, step: float = 0.001) -> list:
+    """A complete, ordinary TCP conversation: handshake, request, response,
+    FIN/FIN. The double FIN matters -- it is what makes FlowTracker close the flow
+    and hand it to the classifier instead of waiting out the idle timeout."""
+    flow = [
+        _pkt(src, server, sport, dport, "S"),
+        _pkt(server, src, dport, sport, "SA"),
+        _pkt(src, server, sport, dport, "A"),
+        _pkt(src, server, sport, dport, "PA",
+             b"GET /index.html HTTP/1.1\r\nHost: example\r\n\r\n"),
+        _pkt(server, src, dport, sport, "PA",
+             b"HTTP/1.1 200 OK\r\n\r\n" + b"x" * 200),
+        _pkt(src, server, sport, dport, "A"),
+        _pkt(src, server, sport, dport, "FA"),
+        _pkt(server, src, dport, sport, "FA"),
+    ]
+    for k, pkt in enumerate(flow):
+        pkt.time = base_ts + k * step
+    return flow
 
-        def mk(flags, payload=b"", rev=False):
-            return (IP(src=SERVER if rev else src, dst=src if rev else SERVER) /
-                    TCP(sport=80 if rev else sport, dport=sport if rev else 80,
-                        flags=flags) /
-                    (Raw(load=payload) if payload else b""))
 
-        flow = [
-            mk("S"),
-            mk("SA", rev=True),
-            mk("A"),
-            mk("PA", b"GET /index.html HTTP/1.1\r\nHost: example\r\n\r\n"),
-            mk("PA", b"HTTP/1.1 200 OK\r\n\r\n" + b"x" * 200, rev=True),
-            mk("A"),
-            mk("FA"),
-            mk("FA", rev=True),
-        ]
-        for k, pkt in enumerate(flow):
-            pkt.time = base + k * 0.001
-        packets.extend(flow)
+def scan_flow(src: str, sport: int, dport: int, base_ts: float,
+              server: str = SERVER, step: float = 0.001) -> list:
+    """A port-scan probe: lone SYN, RST refusal, no payload, no handshake. Shaped
+    to look nothing like http_flow on the features the model was trained on
+    (bytes ~0, no ACK, RST set, sub-millisecond duration), so a capture built from
+    both produces a mix of verdicts rather than one uniform colour."""
+    flow = [
+        _pkt(src, server, sport, dport, "S"),
+        _pkt(server, src, dport, sport, "RA"),
+    ]
+    for k, pkt in enumerate(flow):
+        pkt.time = base_ts + k * step
+    return flow
 
-packets.sort(key=lambda p: p.time)
-wrpcap(OUT, packets)
 
-assert all(not ipaddress.ip_address(i).is_private for i in ips)
-print(f"wrote {len(packets)} packets -> {OUT}")
-print(f"unique public src IPs: {len(ips)} | flows: {len(ips) * FLOWS_PER_IP}")
+def build_bench_packets(n_ips: int, flows_per_ip: int, seed: int = 1337) -> tuple:
+    rng = random.Random(seed)              # deterministic: same capture every run
+    ips, seen = [], set()
+    while len(ips) < n_ips:
+        ip = public_ip(rng)
+        if ip not in seen:
+            seen.add(ip)
+            ips.append(ip)
+
+    packets = []
+    t0 = 1_600_000_000.0
+    for i, src in enumerate(ips):
+        for f in range(flows_per_ip):
+            sport = 40000 + (i * 7 + f * 13) % 20000
+            packets.extend(http_flow(src, sport, t0 + i * 0.001 + f * 0.4))
+    packets.sort(key=lambda p: p.time)
+    return packets, ips
+
+
+def main(argv):
+    out = argv[1] if len(argv) > 1 else "bench.pcap"
+    n_ips = int(argv[2]) if len(argv) > 2 else 300
+    flows_per_ip = int(argv[3]) if len(argv) > 3 else 2
+
+    packets, ips = build_bench_packets(n_ips, flows_per_ip)
+    wrpcap(out, packets)
+
+    assert all(not ipaddress.ip_address(i).is_private for i in ips)
+    print(f"wrote {len(packets)} packets -> {out}")
+    print(f"unique public src IPs: {len(ips)} | flows: {len(ips) * flows_per_ip}")
+
+
+if __name__ == "__main__":
+    main(sys.argv)

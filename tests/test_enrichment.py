@@ -68,7 +68,8 @@ def net(monkeypatch):
             calls["rep"] += 1
             return Resp({"attacks": 3, "reports": 7})
         calls["geo"] += 1
-        return Resp({"country_name": "Testland", "city": "Testville", "state": "TS"})
+        return Resp({"country_name": "Testland", "city": "Testville", "state": "TS",
+                     "latitude": 12.5, "longitude": -3.25})
 
     monkeypatch.setattr(enrichment.requests, "get", fake_get)
     return calls
@@ -127,6 +128,91 @@ def test_network_failure_degrades_without_raising(clock, monkeypatch):
     monkeypatch.setattr(enrichment.requests, "get", boom)
     assert enrichment.get_ip_country(PUBLIC_IP) == enrichment.UNKNOWN_LABEL
     assert enrichment.check_ip_reputation(PUBLIC_IP)["blacklisted"] is False
+
+
+# --------------------------------------------------------------------------
+# coordinates for the threat map
+# --------------------------------------------------------------------------
+def test_geo_captures_coordinates_for_the_map(clock, net):
+    geo = enrichment.get_ip_geo(PUBLIC_IP)
+    assert geo["country"] == "Testland, Testville, TS"
+    assert (geo["lat"], geo["lon"]) == (12.5, -3.25)
+
+
+def test_coordinates_share_the_country_lookup(clock, net):
+    """lat/lon ride along in the response the country already came from, so
+    wanting coordinates must not double the number of HTTP calls."""
+    for _ in range(5):
+        enrichment.get_ip_geo(PUBLIC_IP)
+        enrichment.get_ip_country(PUBLIC_IP)
+    assert net["geo"] == 1, "coordinates must not cost an extra round trip"
+
+
+def test_get_ip_country_still_returns_a_string(clock, net):
+    """Callers that only want a label (logs, LLM context) keep working."""
+    assert enrichment.get_ip_country(PUBLIC_IP) == "Testland, Testville, TS"
+
+
+def test_private_ips_have_no_coordinates(clock, net):
+    geo = enrichment.get_ip_geo("10.0.0.5")
+    assert geo["country"] == enrichment.PRIVATE_LABEL
+    assert geo["lat"] is None and geo["lon"] is None
+    assert net["geo"] == 0
+
+
+def test_country_only_response_renders_without_none_placeholders(clock, monkeypatch):
+    """geolocation-db.com sends explicit nulls for city/state on IPs it can only
+    place at country level, so dict.get(k, "Unknown") returns None, not "Unknown"
+    -- real replayed rows read "Singapore, None, None"."""
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"country_name": "Singapore", "city": None, "state": None,
+                    "latitude": 1.3667, "longitude": 103.8}
+
+    monkeypatch.setattr(enrichment.requests, "get", lambda *a, **k: Resp())
+    geo = enrichment.get_ip_geo(PUBLIC_IP)
+    assert geo["country"] == "Singapore, Unknown, Unknown"
+    assert "None" not in geo["country"]
+    assert (geo["lat"], geo["lon"]) == (1.3667, 103.8)
+
+
+def test_missing_or_junk_coordinates_become_none(clock, monkeypatch):
+    """geolocation-db.com returns the STRING "Not found" instead of a number when
+    it has no fix -- a bare float() would raise on an ordinary response."""
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"country_name": "Nowhere", "city": "?", "state": "?",
+                    "latitude": "Not found", "longitude": "Not found"}
+
+    monkeypatch.setattr(enrichment.requests, "get", lambda *a, **k: Resp())
+    geo = enrichment.get_ip_geo(PUBLIC_IP)
+    assert geo["country"].startswith("Nowhere")
+    assert geo["lat"] is None and geo["lon"] is None
+
+
+def test_geo_failure_yields_no_coordinates_not_zeroes(clock, monkeypatch):
+    """(0, 0) is a real place in the Gulf of Guinea. An upstream failure must not
+    put a threat marker there."""
+    def boom(*a, **k):
+        raise RuntimeError("upstream down")
+
+    monkeypatch.setattr(enrichment.requests, "get", boom)
+    geo = enrichment.get_ip_geo(PUBLIC_IP)
+    assert geo["country"] == enrichment.UNKNOWN_LABEL
+    assert geo["lat"] is None and geo["lon"] is None
+
+
+def test_callers_cannot_corrupt_the_cached_geo_entry(clock, net):
+    """Every caller gets its own dict: a worker mutating its copy must not
+    rewrite the entry every other worker reads."""
+    first = enrichment.get_ip_geo(PUBLIC_IP)
+    first["lat"] = 999.0
+    assert enrichment.get_ip_geo(PUBLIC_IP)["lat"] == 12.5
+    assert net["geo"] == 1
 
 
 def test_concurrent_workers_single_flight_one_call(clock, monkeypatch):
