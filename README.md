@@ -1,5 +1,6 @@
 
-![SIEM GROQ](ss.png)
+![SecOps-AI console: stat strip, threat map, live detection feed, and traffic charts](docs/screenshots/console-dashboard.jpg)
+*The console during a demo replay plus live capture: flow verdicts from the shipped GBT, detection origins on the map, and pipeline counters — all real data.*
 
 # SecOps-AI: Real-Time AI-Driven SIEM Threat Operator
 
@@ -14,7 +15,7 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 * **Flow-based ML threat detection:** Sniffed packets are aggregated into bidirectional flows (`flow_tracker.py`) and scored by a classifier we trained ourselves on CIC-IDS-2017 flow features (`cnn_engine.py`). See **Threat Detection Engine** below for the model, its held-out metrics, and why the borrowed `SecIDS-CNN.h5` is not used for inference.
 * **Asynchronous Ingestion Engine:** Designed around an agile, event-driven web framework (Flask-SocketIO/FastAPI architecture) optimized for real-time, bi-directional telemetry streaming, live log parsing, and concurrent system metric tracking (CPU, RAM, GPU states).
 * **Groq API Telemetry Acceleration:** Integrated directly with the Groq API to run lightning-fast hardware-accelerated LLM inference. It instantly transforms raw, cryptic, or high-volume log payloads into concise, structured, human-readable contextual threat summaries.
-* **Automated Triage Dashboard:** Features a responsive, frontend console built with Tailwind CSS and Chart.js, visualizing streaming network metrics while maintaining an automated, rule-based triage and incident chat environment for rapid operator decision-making.
+* **SOC Console:** A self-contained operator dashboard (hand-written CSS, vendored Chart.js/Socket.IO, bundled world GeoJSON — no CDN, no tile server, renders offline): live threat map, verdict-badged detection feed, pipeline counters, and an LLM triage chat. See **SOC Console** below.
 
 ---
 
@@ -60,12 +61,19 @@ its real multiplicity in the dataset.
 **The benchmark is like-for-like: each model at its own tuned operating point.**
 Both models are swept over the same α × threshold grid under the same FPR
 budget, and each is reported at its own best point — scoring the baseline at
-the primary's threshold would rig the comparison. Held-out test:
+the primary's threshold would rig the comparison. On the CIC-IDS-2017
+held-out test split:
 
-| Model | Own operating point | Per-flow benign FPR | Macro recall | Weighted recall | F1 |
+| Model | Own operating point | Per-flow benign FPR (CIC-IDS-2017 held-out test) | Macro recall | Weighted recall | F1 |
 |---|---|---|---|---|---|
 | **GBT (shipped)** | α=0.5, thr=0.95 | **0.15%** (budget ≤ 1%) | **0.72** | 0.97 | **0.985** |
 | Conv1D (baseline) | α=0.15, thr=0.65 | 0.98% | 0.29 | 0.60 | 0.727 |
+
+Every number above is measured on CIC-IDS-2017, not on a live network. Live
+benign traffic is a different distribution and runs hotter — in LAN capture we
+observe benign flows scoring closer to the threshold than the dataset's benign
+does — so no live-network FPR is claimed here; the budget governs the dataset
+evaluation that selected the operating point.
 
 | Split | Meaning | GBT F1 | Conv1D F1 |
 |---|---|---|---|
@@ -135,6 +143,26 @@ headline F1.**
 
 ---
 
+## 🖥️ SOC Console
+
+![Threat map: detection origins as dots sized by count, suspicious verdicts in red](docs/screenshots/threat-map.png)
+*The threat map after replaying `samples/dos-volumetric.pcap` and the demo capture: 41 located origins, suspicious flows in red, dot size = detections at that location.*
+
+One hierarchy, four elements with jobs: a thin stat strip (packets/sec,
+captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
+**threat map + live detection feed** (verdict badges, confidence, a
+suspicious-only filter, new detections ping the map over WebSocket) → traffic
+rate, top origins, and host health charts → the LLM triage chat and event log.
+
+The page is **self-contained by test, not by promise**: no CDN framework, no
+external tile server. Chart.js and the Socket.IO client are vendored under
+`static/`, and the map is bundled GeoJSON rendered to SVG through an
+equirectangular projection — a fresh clone renders the full console offline.
+`tests/test_api.py` pins that every `src`/`href` served by `/` is local. More
+captures in `docs/screenshots/`.
+
+---
+
 ## 🛠️ Tech Stack & Infrastructure
 
 * **Backend Engine:** Python 3.10+ | Flask / FastAPI Core Architecture
@@ -142,7 +170,7 @@ headline F1.**
 * **Inference Pipeline:** Groq API & Ollama Core Execution Edge (Llama 3.2 Deployment)
 * **Real-Time Data Layer:** WebSockets (Socket.IO) & Asynchronous Event Loops
 * **Storage Matrix:** Structured SQLite Database Engine for persistent audit logging and forensic traceability
-* **UI/UX Layer:** Tailwind CSS, HTML5, Chart.js (Real-time Canvas Rendering)
+* **UI/UX Layer:** Hand-written CSS design system, HTML5, vendored Chart.js + Socket.IO client, bundled-GeoJSON SVG threat map (fully offline-capable)
 
 ## Installation
 
