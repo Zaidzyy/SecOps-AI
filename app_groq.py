@@ -1,3 +1,16 @@
+# Force UTF-8 on stdout/stderr BEFORE any print (including prints from the
+# imports below): Windows' default console code page is cp1252, which cannot
+# encode the emoji in the startup banner and scattered status lines, so a plain
+# `python app_groq.py` crashes with UnicodeEncodeError on first run. errors=
+# "replace" degrades gracefully if a console still refuses UTF-8; the whole
+# thing is guarded so reconfigure() being unavailable can never itself crash.
+import sys
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from flask import Flask, jsonify, request, render_template, session
 import psutil
 import datetime
