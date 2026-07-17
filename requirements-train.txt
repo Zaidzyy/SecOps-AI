@@ -18,6 +18,8 @@ pandas==3.0.3
 pyarrow==25.0.0
 matplotlib==3.11.0
 
-# Tests. test_feature_alignment.py also needs pandas/pyarrow above and the
-# dataset: set CICIDS_PARQUET=<path to CICIDS_Flow.parquet> or it skips.
+# Tests. test_feature_alignment.py needs pandas above and runs against the
+# committed 452-row fixture (tests/fixtures/) by default -- fully offline,
+# no dataset needed. Set CICIDS_PARQUET=<path to CICIDS_Flow.parquet> to run
+# it against the full 2.8M rows instead.
 pytest==9.1.1
