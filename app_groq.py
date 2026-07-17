@@ -20,6 +20,13 @@ import os
 
 import json
 
+# MUST run before the local imports below: config.py (and others) read env vars
+# like SECOPS_SECRET_KEY via os.getenv at IMPORT time. If .env is loaded after
+# those imports, a key that lives only in .env is read as empty and the server
+# refuses to start (`python app_groq.py` following the README). Env/Docker set
+# real env vars so they never hit this -- which is why it went unnoticed.
+load_dotenv()
+
 import alerts
 import auth
 import config
@@ -32,8 +39,6 @@ import rag
 import reports
 import storage
 import triage
-
-load_dotenv()
 
 # Groq API Key und Header
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
