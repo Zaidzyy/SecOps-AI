@@ -31,6 +31,124 @@ The architecture is split into a high-concurrency data ingestion engine, an embe
 
 ---
 
+## 🖥️ SOC Console
+
+![Detection feed: suspicious flows with confidence, ATT&CK technique labels, and triage/report actions](docs/screenshots/detection-feed-attack.png)
+*The live detection feed after the demo seed: each suspicious flow carries a confidence, its ATT&CK technique (T1046 / T1498 / T1499), and per-row triage + report actions.*
+
+One hierarchy, four elements with jobs: a thin stat strip (packets/sec,
+captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
+**threat map + live detection feed** (verdict badges, ATT&CK technique tags on
+flagged flows, confidence, a suspicious-only filter, per-row triage + report
+actions, new detections ping the map over WebSocket) → traffic rate, top
+origins, and host health charts → the ATT&CK coverage panel (which techniques
+have fired, with the unattributed count shown beside them), the operator chat
+(grounded in BM25 retrieval over incident history — see below), and the event
+log.
+
+The page is **self-contained by test, not by promise**: no CDN framework, no
+external tile server. Chart.js and the Socket.IO client are vendored under
+`static/`, and the map is bundled GeoJSON rendered to SVG through an
+equirectangular projection — a fresh clone renders the full console offline.
+`tests/test_api.py` pins that every `src`/`href` served by `/` is local. More
+captures in `docs/screenshots/`.
+
+### Operator chat — RAG with BM25 retrieval over incident history
+
+![ATT&CK coverage panel and the operator chat answering with citation chips](docs/screenshots/attack-coverage-and-chat.jpg)
+*Left: the ATT&CK coverage panel (techniques observed, with the honest unattributed counter). Right: the operator chat answering a question grounded in retrieved incidents, each reply carrying citation chips (detection id · technique · source IP).*
+
+The chat answers from **retrieved incidents, not the model's memory**. Each
+question is scored against the entire detections table with **BM25 lexical
+retrieval** — in-process, zero new dependencies, index rebuilt from SQLite in
+milliseconds and delta-synced before every answer. It is deliberately *not*
+vector/embedding search: this corpus is IPs, ports, T-numbers and country
+names, where exact-term matching wins (a question about `131.203.88.83` must
+match that literal token), and an embedding stack would bloat the 639MB
+container. The retriever sits behind a one-method interface so an embedding
+backend could slot in later if the corpus grows prose.
+
+Grounding is enforced in code, same discipline as the triage agent: the top-k
+retrieved incidents are the model's only source of facts about this network,
+its citations are filtered against the ids actually retrieved, and an empty
+retrieval is stated in the answer rather than papered over. Replies carry
+citation chips (detection id, technique, source IP) and an advisory label.
+Degradation: retrieval failure falls back to the old recent-logs context,
+plainly labelled; Groq absent/unreachable is a clean "chat unavailable", never
+a crash.
+
+### AI triage — bounded agent on demand
+
+![AI triage modal: severity, summary, likely intent, advisory actions, and evidence citing the tools that ran](docs/screenshots/triage-modal.jpg)
+*The triage modal for one detection: severity, one-line summary, likely intent, playbook-based advisory actions, and an evidence list where every row cites the local tool whose result produced it — a fabricated citation is dropped in code.*
+
+Suspicious feed rows carry a **triage** action: a hard-bounded Groq tool-use
+loop (max 5 tool calls, then forced synthesis) over real local tools only —
+IP reputation, related flows, prior detections, and the curated ATT&CK
+playbooks. Evidence citing a tool that never executed is dropped in code; the
+report is cached on the detection so re-opening never re-bills the LLM, and
+it is labelled AI-generated advisory throughout.
+
+### Incident reports — the capstone over Features 1–4
+
+![Incident report print view: executive summary, grounded narrative, detection table, ATT&CK mapping](docs/screenshots/incident-report.jpg)
+*The print-optimized incident report (browser → Save as PDF). The narrative is LLM-synthesized but grounded: note it states the reputation gap honestly ("blocklist.de only provides report counts, not an abuse confidence score") rather than inventing a score. The tables below it are built directly from database rows.*
+
+Suspicious feed rows also carry a **report** action (`POST /report/<id>`),
+which aggregates everything the system already knows about a detection into
+a SOC-style incident report:
+
+- **the detection row** itself (5-tuple, verdict, confidence, flow stats);
+- **MITRE ATT&CK attribution** from the stored Stage-2 columns plus the
+  curated per-technique playbook;
+- **the cached AI triage report**, if an operator ran one;
+- **third-party reputation** as stored at classification time;
+- **related flows and suspicious history** for the source IP, from which a
+  chronological **timeline** and an **IOC table** are derived.
+
+**Grounding, one step further than triage/chat:** the factual sections
+(timeline, IOCs, ATT&CK mapping, reputation, activity counts, data gaps)
+are **built in code from database rows** — the LLM never touches them. One
+Groq call writes only the synthesis (executive summary, narrative, severity,
+playbook-based recommended actions), and its cited detection ids are
+filtered in code against the ids actually present in the aggregation. What
+the system does not know is listed under **Known data gaps**, never papered
+over. The whole document is labelled *AI-generated incident report
+(advisory)*.
+
+**Export:** `GET /report/<id>.md` downloads Markdown (zero-dependency, the
+primary format); `GET /report/<id>/view` renders a print-optimized,
+self-contained HTML view — the PDF path is the browser's own *Print → Save
+as PDF*, so the container needs no PDF library and the image does not grow.
+Both routes serve **only the cached report** (generation is the explicit
+POST), so a GET can never bill Groq. Reports are cached on the detection row
+(`report_json`), and generation degrades to a clean 503 when Groq is absent.
+
+### Outbound alerting — critical events to a webhook
+
+Set `SECOPS_ALERT_WEBHOOK` to a generic JSON webhook URL (Slack and Discord
+incoming webhooks both work: the payload carries `text` for Slack, `content`
+for Discord, and a structured `alert` object for everything else). **Unset —
+the default — means alerting is off: no HTTP, no error.**
+
+Two things alert, both deliberately rare (`alerts.py`, thresholds in
+`config.py`):
+
+- **corroborated** — a suspicious verdict with confidence ≥ 0.99 *and* a
+  third-party abuse score ≥ 50: our detector and an external reputation
+  source agree;
+- **new-technique** — the first time the process observes a given ATT&CK
+  technique.
+
+Alerts are **throttled to one per (source IP, technique) per 5-minute
+window**, so a flood that produces hundreds of detections sends one webhook,
+not a storm. The payload carries technique, IP, severity, reputation,
+timestamp, and a concise summary. Delivery failures are logged and swallowed
+— the pipeline worker never notices, and a failed alert is not retried
+(storms are worse than one lost alert).
+
+---
+
 ## 🧠 Threat Detection Engine
 
 Packets alone can't be classified by a flow-trained model, so the pipeline is:
@@ -264,124 +382,6 @@ coverage, not a detection claim.
 
 ---
 
-## 🖥️ SOC Console
-
-![Detection feed: suspicious flows with confidence, ATT&CK technique labels, and triage/report actions](docs/screenshots/detection-feed-attack.png)
-*The live detection feed after the demo seed: each suspicious flow carries a confidence, its ATT&CK technique (T1046 / T1498 / T1499), and per-row triage + report actions.*
-
-One hierarchy, four elements with jobs: a thin stat strip (packets/sec,
-captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
-**threat map + live detection feed** (verdict badges, ATT&CK technique tags on
-flagged flows, confidence, a suspicious-only filter, per-row triage + report
-actions, new detections ping the map over WebSocket) → traffic rate, top
-origins, and host health charts → the ATT&CK coverage panel (which techniques
-have fired, with the unattributed count shown beside them), the operator chat
-(grounded in BM25 retrieval over incident history — see below), and the event
-log.
-
-The page is **self-contained by test, not by promise**: no CDN framework, no
-external tile server. Chart.js and the Socket.IO client are vendored under
-`static/`, and the map is bundled GeoJSON rendered to SVG through an
-equirectangular projection — a fresh clone renders the full console offline.
-`tests/test_api.py` pins that every `src`/`href` served by `/` is local. More
-captures in `docs/screenshots/`.
-
-### Operator chat — RAG with BM25 retrieval over incident history
-
-![ATT&CK coverage panel and the operator chat answering with citation chips](docs/screenshots/attack-coverage-and-chat.jpg)
-*Left: the ATT&CK coverage panel (techniques observed, with the honest unattributed counter). Right: the operator chat answering a question grounded in retrieved incidents, each reply carrying citation chips (detection id · technique · source IP).*
-
-The chat answers from **retrieved incidents, not the model's memory**. Each
-question is scored against the entire detections table with **BM25 lexical
-retrieval** — in-process, zero new dependencies, index rebuilt from SQLite in
-milliseconds and delta-synced before every answer. It is deliberately *not*
-vector/embedding search: this corpus is IPs, ports, T-numbers and country
-names, where exact-term matching wins (a question about `131.203.88.83` must
-match that literal token), and an embedding stack would bloat the 639MB
-container. The retriever sits behind a one-method interface so an embedding
-backend could slot in later if the corpus grows prose.
-
-Grounding is enforced in code, same discipline as the triage agent: the top-k
-retrieved incidents are the model's only source of facts about this network,
-its citations are filtered against the ids actually retrieved, and an empty
-retrieval is stated in the answer rather than papered over. Replies carry
-citation chips (detection id, technique, source IP) and an advisory label.
-Degradation: retrieval failure falls back to the old recent-logs context,
-plainly labelled; Groq absent/unreachable is a clean "chat unavailable", never
-a crash.
-
-### AI triage — bounded agent on demand
-
-![AI triage modal: severity, summary, likely intent, advisory actions, and evidence citing the tools that ran](docs/screenshots/triage-modal.jpg)
-*The triage modal for one detection: severity, one-line summary, likely intent, playbook-based advisory actions, and an evidence list where every row cites the local tool whose result produced it — a fabricated citation is dropped in code.*
-
-Suspicious feed rows carry a **triage** action: a hard-bounded Groq tool-use
-loop (max 5 tool calls, then forced synthesis) over real local tools only —
-IP reputation, related flows, prior detections, and the curated ATT&CK
-playbooks. Evidence citing a tool that never executed is dropped in code; the
-report is cached on the detection so re-opening never re-bills the LLM, and
-it is labelled AI-generated advisory throughout.
-
-### Incident reports — the capstone over Features 1–4
-
-![Incident report print view: executive summary, grounded narrative, detection table, ATT&CK mapping](docs/screenshots/incident-report.jpg)
-*The print-optimized incident report (browser → Save as PDF). The narrative is LLM-synthesized but grounded: note it states the reputation gap honestly ("blocklist.de only provides report counts, not an abuse confidence score") rather than inventing a score. The tables below it are built directly from database rows.*
-
-Suspicious feed rows also carry a **report** action (`POST /report/<id>`),
-which aggregates everything the system already knows about a detection into
-a SOC-style incident report:
-
-- **the detection row** itself (5-tuple, verdict, confidence, flow stats);
-- **MITRE ATT&CK attribution** from the stored Stage-2 columns plus the
-  curated per-technique playbook;
-- **the cached AI triage report**, if an operator ran one;
-- **third-party reputation** as stored at classification time;
-- **related flows and suspicious history** for the source IP, from which a
-  chronological **timeline** and an **IOC table** are derived.
-
-**Grounding, one step further than triage/chat:** the factual sections
-(timeline, IOCs, ATT&CK mapping, reputation, activity counts, data gaps)
-are **built in code from database rows** — the LLM never touches them. One
-Groq call writes only the synthesis (executive summary, narrative, severity,
-playbook-based recommended actions), and its cited detection ids are
-filtered in code against the ids actually present in the aggregation. What
-the system does not know is listed under **Known data gaps**, never papered
-over. The whole document is labelled *AI-generated incident report
-(advisory)*.
-
-**Export:** `GET /report/<id>.md` downloads Markdown (zero-dependency, the
-primary format); `GET /report/<id>/view` renders a print-optimized,
-self-contained HTML view — the PDF path is the browser's own *Print → Save
-as PDF*, so the container needs no PDF library and the image does not grow.
-Both routes serve **only the cached report** (generation is the explicit
-POST), so a GET can never bill Groq. Reports are cached on the detection row
-(`report_json`), and generation degrades to a clean 503 when Groq is absent.
-
-### Outbound alerting — critical events to a webhook
-
-Set `SECOPS_ALERT_WEBHOOK` to a generic JSON webhook URL (Slack and Discord
-incoming webhooks both work: the payload carries `text` for Slack, `content`
-for Discord, and a structured `alert` object for everything else). **Unset —
-the default — means alerting is off: no HTTP, no error.**
-
-Two things alert, both deliberately rare (`alerts.py`, thresholds in
-`config.py`):
-
-- **corroborated** — a suspicious verdict with confidence ≥ 0.99 *and* a
-  third-party abuse score ≥ 50: our detector and an external reputation
-  source agree;
-- **new-technique** — the first time the process observes a given ATT&CK
-  technique.
-
-Alerts are **throttled to one per (source IP, technique) per 5-minute
-window**, so a flood that produces hundreds of detections sends one webhook,
-not a storm. The payload carries technique, IP, severity, reputation,
-timestamp, and a concise summary. Delivery failures are logged and swallowed
-— the pipeline worker never notices, and a failed alert is not retried
-(storms are worse than one lost alert).
-
----
-
 ## 🛠️ Tech Stack & Infrastructure
 
 * **Backend Engine:** Python 3.10+ | Flask / FastAPI Core Architecture
@@ -390,6 +390,8 @@ timestamp, and a concise summary. Delivery failures are logged and swallowed
 * **Real-Time Data Layer:** WebSockets (Socket.IO) & Asynchronous Event Loops
 * **Storage Matrix:** Structured SQLite Database Engine for persistent audit logging and forensic traceability
 * **UI/UX Layer:** Hand-written CSS design system, HTML5, vendored Chart.js + Socket.IO client, bundled-GeoJSON SVG threat map (fully offline-capable)
+
+---
 
 ## Installation
 
