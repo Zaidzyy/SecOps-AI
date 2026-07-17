@@ -25,7 +25,10 @@ COPY alerts.py app_groq.py attack_mapping.py auth.py cnn_engine.py config.py \
 COPY models/ models/
 COPY static/ static/
 COPY templates/ templates/
-COPY samples/demo-public-ips.pcap samples/demo-public-ips.pcap
+# Both demo captures: benign public-IP traffic (map spread + benign baseline)
+# and the in-scope attack pcap (port-scan + DoS) the seed replays so first
+# boot shows suspicious detections with ATT&CK badges. See docker/entrypoint.sh.
+COPY samples/demo-public-ips.pcap samples/dos-volumetric.pcap samples/
 COPY docker/entrypoint.sh /entrypoint.sh
 
 # Non-root from here on. /data holds the SQLite database (declared a volume in

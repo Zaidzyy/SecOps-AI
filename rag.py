@@ -15,8 +15,8 @@ The Retriever interface below is the seam where an embedding/hybrid backend
 could slot in later without touching /chat.
 
 Index design: in-process, no separate server, so it runs unchanged in the
-unprivileged container; ZERO new dependencies, so the 637MB image stays
-637MB. Persistence rides on SQLite itself rather than a second index file --
+unprivileged container; ZERO new dependencies, so retrieval adds nothing to
+the image. Persistence rides on SQLite itself rather than a second index file --
 at this scale a full rebuild from the detections table costs milliseconds,
 and a sidecar file would only add a way to be stale. sync() is a delta
 (WHERE id > last_id): called once at startup and again on every /chat, so an

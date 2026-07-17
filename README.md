@@ -1,10 +1,20 @@
 
-![SecOps-AI console: stat strip, threat map, live detection feed, and traffic charts](docs/screenshots/console-dashboard.jpg)
-*The console during a demo replay plus live capture: flow verdicts from the shipped GBT, detection origins on the map, and pipeline counters — all real data.*
+![SecOps-AI console: stat strip, threat map, live detection feed with ATT&CK badges, and traffic charts](docs/screenshots/console-overview.jpg)
+*The console on a fresh `docker compose up`: the demo seed replays benign public-IP traffic (map spread) plus the in-scope attack capture, so the feed shows suspicious flows with ATT&CK technique badges and working triage/report actions — all real data through the live pipeline.*
 
 # SecOps-AI: Real-Time AI-Driven SIEM Threat Operator
 
-SecOps-AI is an advanced, high-performance Security Information and Event Management (SIEM) real-time threat detection and acceleration pipeline. Built to address modern Security Operations Center (SOC) bottlenecks and drastically reduce alert fatigue, the platform ingests high-volume Syslog and Windows event logs, applies dual-engine deep learning models, and leverages ultra-low-latency LLM inference to deliver instant, actionable threat triage.
+SecOps-AI is a real-time **network flow** threat-detection console. It captures
+live traffic — or replays a pcap through the identical path — aggregates packets
+into bidirectional flows, and scores each flow with a **gradient-boosted
+classifier trained in-repo on CIC-IDS-2017**. Flagged flows are attributed to
+**MITRE ATT&CK** techniques by a second-stage model, enriched with third-party
+IP reputation, and made actionable by a **Groq-accelerated LLM layer**: bounded
+agentic triage, retrieval-grounded operator chat, and one-click incident
+reports — plus throttled outbound alerting on critical events. Every AI output
+is grounded in real aggregated data and labelled advisory; nothing is
+fabricated. See **Threat Detection Engine** below for the model and its
+held-out metrics.
 
 ---
 
@@ -13,9 +23,11 @@ SecOps-AI is an advanced, high-performance Security Information and Event Manage
 The architecture is split into a high-concurrency data ingestion engine, an embedded deep learning classification layer, and an accelerated AI orchestration tier:
 
 * **Flow-based ML threat detection:** Sniffed packets are aggregated into bidirectional flows (`flow_tracker.py`) and scored by a classifier we trained ourselves on CIC-IDS-2017 flow features (`cnn_engine.py`). See **Threat Detection Engine** below for the model, its held-out metrics, and why the borrowed `SecIDS-CNN.h5` is not used for inference.
-* **Asynchronous Ingestion Engine:** Designed around an agile, event-driven web framework (Flask-SocketIO/FastAPI architecture) optimized for real-time, bi-directional telemetry streaming, live log parsing, and concurrent system metric tracking (CPU, RAM, GPU states).
-* **Groq API Telemetry Acceleration:** Integrated directly with the Groq API to run lightning-fast hardware-accelerated LLM inference. It instantly transforms raw, cryptic, or high-volume log payloads into concise, structured, human-readable contextual threat summaries.
-* **SOC Console:** A self-contained operator dashboard (hand-written CSS, vendored Chart.js/Socket.IO, bundled world GeoJSON — no CDN, no tile server, renders offline): live threat map, verdict-badged detection feed, pipeline counters, on-demand AI triage on flagged flows, and an operator chat grounded in BM25 retrieval over incident history. See **SOC Console** below.
+* **Sharded ingestion pipeline:** A Flask-SocketIO server with a flow-key-sharded capture→enrichment→single-writer pipeline (`pipeline.py`), optimized for real-time bi-directional telemetry streaming over WebSocket, TTL-cached geo/reputation enrichment, and concurrent system-metric tracking (CPU, RAM, disk).
+* **Groq-accelerated AI layer:** Three grounded LLM features on the Groq API — bounded agentic **triage**, retrieval-grounded operator **chat** (BM25 over incident history), and one-click **incident reports** — each built only from real aggregated data, with citations filtered in code and an advisory label. Groq absent/unreachable degrades to a clean error, never a crash.
+* **MITRE ATT&CK attribution & reputation:** Flagged flows are attributed to ATT&CK techniques by a curated two-stage model (never an LLM), and enriched with third-party IP reputation (AbuseIPDB / blocklist.de).
+* **Outbound alerting:** Config-driven generic webhook (Slack/Discord-compatible) on critical events, throttled against alert storms and off by default.
+* **SOC Console:** A self-contained operator dashboard (hand-written CSS, vendored Chart.js/Socket.IO, bundled world GeoJSON — no CDN, no tile server, renders offline): live threat map, ATT&CK-badged detection feed, pipeline counters, the coverage panel, and the triage / chat / report actions. See **SOC Console** below.
 
 ---
 
@@ -66,8 +78,8 @@ held-out test split:
 
 | Model | Own operating point | Per-flow benign FPR (CIC-IDS-2017 held-out test) | Macro recall | Weighted recall | F1 |
 |---|---|---|---|---|---|
-| **GBT (shipped)** | α=0.5, thr=0.95 | **0.15%** (budget ≤ 1%) | **0.72** | 0.97 | **0.985** |
-| Conv1D (baseline) | α=0.15, thr=0.65 | 0.98% | 0.29 | 0.60 | 0.727 |
+| **GBT (shipped)** | α=0.5, thr=0.95 | **0.15%** (budget ≤ 1%) | **0.723** | 0.974 | **0.985** |
+| Conv1D (baseline) | α=0.15, thr=0.65 | 0.98% | 0.294 | 0.596 | 0.727 |
 
 Every number above is measured on CIC-IDS-2017, not on a live network. Live
 benign traffic is a different distribution and runs hotter — in LAN capture we
@@ -81,12 +93,23 @@ evaluation that selected the operating point.
 | Random stratified | Optimistic upper bound (duplicate bursts leak) | 0.940 | 0.421 |
 | Group by source IP | Degenerate — one IP emits 99.6% of attacks | 0.001 | 0.000 |
 
+On the headline split, that is a GBT confusion of **tn=149 120, fp=252,
+fn=1 667, tp=63 438** (214 477 test flows, 65 105 positive) versus the Conv1D's
+**tn=146 485, fp=2 887, fn=26 306, tp=38 799** — the baseline misses 16× as many
+attacks and raises 11× as many false positives at its own tuned point.
+
 The shipped GBT is exactly the model the frontier measured (trained on the 60%
 train split), so the selection evidence describes the deployed artifact. Even
 at its own best operating point the Conv1D reaches less than half the GBT's
 macro recall while spending nearly the whole FPR budget — which is why the GBT
-ships. A per-feature leakage check found no single feature exceeding 0.72 AUC.
-Full numbers, per-class recall, and both frontiers: `models/metrics.json`.
+ships.
+
+**Leakage check.** A single feature that alone separates attack from benign
+usually means the split leaked. Every one of the 6 features was scored on its
+own (univariate AUC and a one-split decision stump); the strongest is
+`protocol` at **0.72** stump AUC, and none reaches the 0.98 flag threshold — no
+single feature is doing the work. Full numbers, both frontiers, and all four
+split methodologies: `models/metrics.json`.
 
 **Retrain / reproduce:**
 ```bash
@@ -137,9 +160,48 @@ does not extract. The frontier sweep confirmed this is not a tuning problem: at
 **every** class-weighting strength that respects the FPR budget, the Web Attack
 classes stay near zero recall. The scope is therefore locked — volumetric
 DoS/DDoS and rate-based detection, no content-based detection claimed at any
-weighting. Per-class recall at the shipped operating point is in
-`models/metrics.json`; **coverage claims must come from that table, not from the
-headline F1.**
+weighting. Per-class recall at the shipped operating point is the table below;
+**coverage claims must come from it, not from the headline F1.**
+
+**Per-class live recall at the shipped operating point** (α=0.5, thr=0.95, on
+the dedup + stratified held-out **test** split — the headline split, computed
+in `models/metrics.json`). Recall is what fraction of that class's flows the
+Stage-1 gate flags suspicious. Grouped by whether the class is *in scope*:
+
+| In-scope (volumetric / rate-based) | n (test) | Recall | | Out-of-scope (not claimed) | n (test) | Recall |
+|---|---:|---:|---|---|---:|---:|
+| DDoS | 25 312 | 0.990 | | Web Attack – Brute Force | 270 | 0.093 |
+| DoS slowloris | 905 | 0.989 | | Web Attack – XSS | 132 | 0.008 |
+| DoS Slowhttptest | 1 044 | 0.978 | | Web Attack – SQL Injection | 3 | 0.333 |
+| DoS Hulk | 33 427 | 0.975 | | Bot | 254 | 0.925 |
+| DoS GoldenEye | 1 960 | 0.958 | | Infiltration | 8 | 0.500 |
+| FTP-Patator | 829 | 0.995 | | Heartbleed | 2 | 0.500 |
+| SSH-Patator | 622 | 0.929 | | | | |
+| PortScan | 337 | 0.944 | | | | |
+
+Read this honestly, not as a scoreboard:
+- **The in-scope classes are what the detector is shipped to catch**, and it
+  does: 0.93–0.99 recall across DoS/DDoS, the two Patator brute-force families,
+  and PortScan. `DoS GoldenEye` (0.958) is volumetric but sits just under 1.0 at
+  this threshold, so it is pinned in the regression test at its measured value,
+  not held to a target it does not meet.
+- **The Web Attack classes (content-based) are near-zero by design, not by
+  accident** — the 6 volume/shape features cannot separate a malicious HTTP
+  request from a benign one, and the frontier sweep confirmed no class weighting
+  fixes it (see scope above). They are shown here for honesty; the product
+  claims none of them.
+- **`Bot` (0.925) is incidental**, not a claim: CIC-IDS bot flows happen to be
+  volumetrically distinct in this dataset; nothing about the feature set makes
+  C2 detection reliable in general.
+- **Three classes are statistically meaningless here** — `Heartbleed` (n=2),
+  `Web Attack – SQL Injection` (n=3), `Infiltration` (n=8) are too rare in the
+  test split for their recall to mean anything; they are in the table so the row
+  is not silently dropped, not because 0.5 or 0.333 is informative.
+
+Macro recall (every class equal) is **0.723**; weighted recall (by row count,
+which lets the three high-volume DoS/DDoS classes dominate) is **0.974**. The
+gap between them is the scope story in one number: strong where it is aimed,
+weak on the content classes it does not claim.
 
 ### MITRE ATT&CK mapping — two-stage by design
 
@@ -167,9 +229,27 @@ honestly-scoped second stage**:
 
 **Measured reliability** (held-out dedup test split, same methodology as
 Stage 1 — exact-duplicate shapes removed before splitting): argmax macro-F1
-**0.949** across 7 families; per-family recall 0.976–0.9998 for the six mapped
-families. Full confusion matrix and per-family table in
-`models/secids_attributor_meta.json` and `models/confusion_attributor.png`.
+**0.949** across 7 families, and **accuracy-when-attributed 0.998 at coverage
+0.9999** (the confidence gate almost never has to abstain on the mapped
+families). Per family:
+
+| family | technique | n (test) | recall | accuracy when attributed |
+|---|---|---:|---:|---:|
+| ddos | T1498 | 25 433 | 0.9998 | 0.9998 |
+| dos | T1499 | 37 200 | 0.998 | 0.9981 |
+| botnet | T1071 | 265 | 0.996 | 0.996 |
+| port-scan | T1046 | 322 | 0.994 | 0.994 |
+| brute-force | T1110 | 1 480 | 0.990 | 0.990 |
+| web-attack | T1190 | 418 | 0.976 | 0.976 |
+| *other* (abstain class) | — unattributed | 9 | 0.778 | — |
+
+The six mapped families all sit at 0.976–0.9998; the `other` grab-bag
+(Infiltration + Heartbleed, 9 test shapes) is the abstain class and is
+*supposed* to stay unattributed. Note this is Stage-2 accuracy **given a
+correct Stage-1 flag** — it presumes the flow reached Stage 2, so it is bounded
+by Stage 1's per-class recall above, not independent of it. Full confusion
+matrix and per-family table: `models/secids_attributor_meta.json` and
+`models/confusion_attributor.png`.
 
 **Unattributed when unsure.** The attributor abstains rather than guess: a
 prediction below its validation-chosen confidence threshold, or of the "other"
@@ -186,17 +266,18 @@ coverage, not a detection claim.
 
 ## 🖥️ SOC Console
 
-![Threat map: detection origins as dots sized by count, suspicious verdicts in red](docs/screenshots/threat-map.png)
-*The threat map after replaying `samples/dos-volumetric.pcap` and the demo capture: 41 located origins, suspicious flows in red, dot size = detections at that location.*
+![Detection feed: suspicious flows with confidence, ATT&CK technique labels, and triage/report actions](docs/screenshots/detection-feed-attack.png)
+*The live detection feed after the demo seed: each suspicious flow carries a confidence, its ATT&CK technique (T1046 / T1498 / T1499), and per-row triage + report actions.*
 
 One hierarchy, four elements with jobs: a thin stat strip (packets/sec,
 captured, dropped, unique IPs, flows classified, suspicious) → a hero row of
 **threat map + live detection feed** (verdict badges, ATT&CK technique tags on
-flagged flows, confidence, a suspicious-only filter, new detections ping the
-map over WebSocket) → traffic rate, top origins, and host health charts → the
-ATT&CK coverage panel (which techniques have fired, with the unattributed
-count shown beside them), the operator chat (grounded in BM25 retrieval over
-incident history — see below), and the event log.
+flagged flows, confidence, a suspicious-only filter, per-row triage + report
+actions, new detections ping the map over WebSocket) → traffic rate, top
+origins, and host health charts → the ATT&CK coverage panel (which techniques
+have fired, with the unattributed count shown beside them), the operator chat
+(grounded in BM25 retrieval over incident history — see below), and the event
+log.
 
 The page is **self-contained by test, not by promise**: no CDN framework, no
 external tile server. Chart.js and the Socket.IO client are vendored under
@@ -207,13 +288,16 @@ captures in `docs/screenshots/`.
 
 ### Operator chat — RAG with BM25 retrieval over incident history
 
+![ATT&CK coverage panel and the operator chat answering with citation chips](docs/screenshots/attack-coverage-and-chat.jpg)
+*Left: the ATT&CK coverage panel (techniques observed, with the honest unattributed counter). Right: the operator chat answering a question grounded in retrieved incidents, each reply carrying citation chips (detection id · technique · source IP).*
+
 The chat answers from **retrieved incidents, not the model's memory**. Each
 question is scored against the entire detections table with **BM25 lexical
 retrieval** — in-process, zero new dependencies, index rebuilt from SQLite in
 milliseconds and delta-synced before every answer. It is deliberately *not*
 vector/embedding search: this corpus is IPs, ports, T-numbers and country
 names, where exact-term matching wins (a question about `131.203.88.83` must
-match that literal token), and an embedding stack would bloat the 637MB
+match that literal token), and an embedding stack would bloat the 639MB
 container. The retriever sits behind a one-method interface so an embedding
 backend could slot in later if the corpus grows prose.
 
@@ -228,6 +312,9 @@ a crash.
 
 ### AI triage — bounded agent on demand
 
+![AI triage modal: severity, summary, likely intent, advisory actions, and evidence citing the tools that ran](docs/screenshots/triage-modal.jpg)
+*The triage modal for one detection: severity, one-line summary, likely intent, playbook-based advisory actions, and an evidence list where every row cites the local tool whose result produced it — a fabricated citation is dropped in code.*
+
 Suspicious feed rows carry a **triage** action: a hard-bounded Groq tool-use
 loop (max 5 tool calls, then forced synthesis) over real local tools only —
 IP reputation, related flows, prior detections, and the curated ATT&CK
@@ -236,6 +323,9 @@ report is cached on the detection so re-opening never re-bills the LLM, and
 it is labelled AI-generated advisory throughout.
 
 ### Incident reports — the capstone over Features 1–4
+
+![Incident report print view: executive summary, grounded narrative, detection table, ATT&CK mapping](docs/screenshots/incident-report.jpg)
+*The print-optimized incident report (browser → Save as PDF). The narrative is LLM-synthesized but grounded: note it states the reputation gap honestly ("blocklist.de only provides report counts, not an abuse confidence score") rather than inventing a score. The tables below it are built directly from database rows.*
 
 Suspicious feed rows also carry a **report** action (`POST /report/<id>`),
 which aggregates everything the system already knows about a detection into
@@ -419,10 +509,15 @@ docker compose up
 ```
 
 Then open `http://localhost:5000`, **register** an operator account, and log
-in — the dashboard is already populated: on first boot the container replays
-`samples/demo-public-ips.pcap` through the real detection pipeline
-(`SECOPS_SEED_DEMO=1`, default on), so the threat map and detection feed have
-data immediately.
+in — the dashboard is already populated. On first boot the container replays
+**two** captures through the real detection pipeline (`SECOPS_SEED_DEMO=1`,
+default on): `samples/demo-public-ips.pcap` for benign traffic across ~14
+countries (the threat map's spread and an honest benign baseline), then
+`samples/dos-volumetric.pcap` for in-scope attack traffic. The result out of
+the box: **44 suspicious detections with ATT&CK technique badges** (T1046
+port-scan, T1498 DDoS, T1499 endpoint DoS) alongside the benign flows — so the
+coverage panel, triage, and incident-report actions all have real detections to
+act on, zero manual steps.
 
 Configuration comes from `.env` (copy `.env.example`). If `SECOPS_SECRET_KEY`
 is unset, compose falls back to a **demo-only key that is public in

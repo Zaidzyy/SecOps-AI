@@ -21,9 +21,11 @@ scripts/
 docs/
 tests/
 
-# Big captures. The demo seed pcap (samples/demo-public-ips.pcap, 22 KB) is
-# NOT ignored -- the entrypoint replays it to populate the first-boot demo.
-samples/dos-volumetric.pcap
+# Captures. The two demo seed pcaps are NOT ignored -- the entrypoint replays
+# BOTH to populate the first-boot demo (demo-public-ips.pcap, 22 KB, benign +
+# geo spread; dos-volumetric.pcap, 185 KB, the in-scope attack traffic that
+# makes the feed show suspicious detections with ATT&CK badges). Only the
+# unused heartbleed excerpt stays out of the image.
 samples/heartbleed-excerpt.pcap
 
 *.md
