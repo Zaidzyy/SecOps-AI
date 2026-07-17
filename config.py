@@ -220,6 +220,36 @@ RAG_TOP_K = 6
 # strict JSON with a citations array, which the 8b model fumbles.
 RAG_CHAT_MODEL = os.getenv("SECOPS_CHAT_MODEL", "llama-3.3-70b-versatile")
 
+# --- Incident reports (Feature 5, Part A) ---
+# One Groq call per report (reports.py). Same model tier as triage/chat, same
+# reason: the narrative must be strict JSON, which the 8b model fumbles.
+REPORT_MODEL = os.getenv("SECOPS_REPORT_MODEL", "llama-3.3-70b-versatile")
+
+# Row LIMIT for the related-flows / history aggregation in the dossier. Larger
+# than the triage tools' limit (the report is a summary document, not a chat
+# turn), still bounded: the dossier is spliced into an LLM prompt.
+REPORT_ROW_LIMIT = 20
+
+# --- Outbound alerting (Feature 5, Part B) ---
+# Generic webhook (JSON POST, Slack/Discord-compatible). OFF by default: no
+# URL means alerts.consider() is a no-op -- no error, no HTTP. Read at call
+# time in alerts.py (import-order reasoning as GROQ_API_KEY in triage.py).
+ALERT_WEBHOOK_ENV = "SECOPS_ALERT_WEBHOOK"
+
+# What makes a detection CRITICAL enough to alert on (alerts.py):
+#   - suspicious verdict with confidence >= ALERT_CONFIDENCE *and* a
+#     third-party abuse score >= ALERT_ABUSE_SCORE  (corroborated), or
+#   - the first time this process observes a given ATT&CK technique.
+ALERT_CONFIDENCE = 0.99
+ALERT_ABUSE_SCORE = 50            # same bar as ABUSE_SCORE_FLAG_THRESHOLD
+
+# Throttle: at most one alert per (source IP, technique) per window, so a
+# flood that produces hundreds of detections produces ONE webhook, not a
+# storm. First-occurrence alerts are inherently once-per-technique.
+ALERT_THROTTLE_S = 300.0
+
+ALERT_HTTP_TIMEOUT_S = 5.0
+
 # --- Read API (Phase 3) ---
 # Paged so a client can never ask the DB for an unbounded result set.
 API_PAGE_SIZE_DEFAULT = 50

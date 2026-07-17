@@ -203,7 +203,7 @@ def fetch_detection(conn: sqlite3.Connection, detection_id: int) -> dict | None:
     does not exist. Used by /triage/<id>, which needs the full row (flow stats
     for the LLM context, triage_json for the cache check)."""
     row = conn.execute(f"""
-        SELECT {DETECTION_COLUMNS}, triage_json, triage_at
+        SELECT {DETECTION_COLUMNS}, triage_json, triage_at, report_json, report_at
         FROM detections WHERE id = ?
     """, (detection_id,)).fetchone()
     return dict(row) if row else None
@@ -218,6 +218,16 @@ def save_triage(conn: sqlite3.Connection, detection_id: int, triage_json: str) -
     conn.execute(
         "UPDATE detections SET triage_json = ?, triage_at = CURRENT_TIMESTAMP "
         "WHERE id = ?", (triage_json, detection_id))
+
+
+def save_report(conn: sqlite3.Connection, detection_id: int, report_json: str) -> None:
+    """Persist an incident report on its detection (Feature 5). Direct write
+    for the same reason as save_triage: a rare, operator-triggered one-row
+    UPDATE the same request reads back -- the async batch would allow a
+    re-open inside the flush window to re-bill the LLM."""
+    conn.execute(
+        "UPDATE detections SET report_json = ?, report_at = CURRENT_TIMESTAMP "
+        "WHERE id = ?", (report_json, detection_id))
 
 
 # --- triage tool queries (Feature 2) -----------------------------------------

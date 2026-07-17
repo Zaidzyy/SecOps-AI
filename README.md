@@ -235,6 +235,61 @@ playbooks. Evidence citing a tool that never executed is dropped in code; the
 report is cached on the detection so re-opening never re-bills the LLM, and
 it is labelled AI-generated advisory throughout.
 
+### Incident reports — the capstone over Features 1–4
+
+Suspicious feed rows also carry a **report** action (`POST /report/<id>`),
+which aggregates everything the system already knows about a detection into
+a SOC-style incident report:
+
+- **the detection row** itself (5-tuple, verdict, confidence, flow stats);
+- **MITRE ATT&CK attribution** from the stored Stage-2 columns plus the
+  curated per-technique playbook;
+- **the cached AI triage report**, if an operator ran one;
+- **third-party reputation** as stored at classification time;
+- **related flows and suspicious history** for the source IP, from which a
+  chronological **timeline** and an **IOC table** are derived.
+
+**Grounding, one step further than triage/chat:** the factual sections
+(timeline, IOCs, ATT&CK mapping, reputation, activity counts, data gaps)
+are **built in code from database rows** — the LLM never touches them. One
+Groq call writes only the synthesis (executive summary, narrative, severity,
+playbook-based recommended actions), and its cited detection ids are
+filtered in code against the ids actually present in the aggregation. What
+the system does not know is listed under **Known data gaps**, never papered
+over. The whole document is labelled *AI-generated incident report
+(advisory)*.
+
+**Export:** `GET /report/<id>.md` downloads Markdown (zero-dependency, the
+primary format); `GET /report/<id>/view` renders a print-optimized,
+self-contained HTML view — the PDF path is the browser's own *Print → Save
+as PDF*, so the container needs no PDF library and the image does not grow.
+Both routes serve **only the cached report** (generation is the explicit
+POST), so a GET can never bill Groq. Reports are cached on the detection row
+(`report_json`), and generation degrades to a clean 503 when Groq is absent.
+
+### Outbound alerting — critical events to a webhook
+
+Set `SECOPS_ALERT_WEBHOOK` to a generic JSON webhook URL (Slack and Discord
+incoming webhooks both work: the payload carries `text` for Slack, `content`
+for Discord, and a structured `alert` object for everything else). **Unset —
+the default — means alerting is off: no HTTP, no error.**
+
+Two things alert, both deliberately rare (`alerts.py`, thresholds in
+`config.py`):
+
+- **corroborated** — a suspicious verdict with confidence ≥ 0.99 *and* a
+  third-party abuse score ≥ 50: our detector and an external reputation
+  source agree;
+- **new-technique** — the first time the process observes a given ATT&CK
+  technique.
+
+Alerts are **throttled to one per (source IP, technique) per 5-minute
+window**, so a flood that produces hundreds of detections sends one webhook,
+not a storm. The payload carries technique, IP, severity, reputation,
+timestamp, and a concise summary. Delivery failures are logged and swallowed
+— the pipeline worker never notices, and a failed alert is not retried
+(storms are worse than one lost alert).
+
 ---
 
 ## 🛠️ Tech Stack & Infrastructure
@@ -311,7 +366,9 @@ it is labelled AI-generated advisory throughout.
 
    Optional overrides (defaults in parentheses): `SECOPS_HOST` (`127.0.0.1`),
    `SECOPS_PORT` (`5000`), `SECOPS_ALLOWED_ORIGINS` (the local origin),
-   `SECOPS_DEBUG` (`0`), `SECOPS_COOKIE_SECURE` (`0`; set `1` behind HTTPS).
+   `SECOPS_DEBUG` (`0`), `SECOPS_COOKIE_SECURE` (`0`; set `1` behind HTTPS),
+   `SECOPS_ALERT_WEBHOOK` (unset = outbound alerting off — see **Outbound
+   alerting** above).
 
    > `HF_TOKEN` is no longer required. It existed only to download the borrowed
    > `SecIDS-CNN.h5`, which is no longer on the inference path — the shipped
@@ -459,6 +516,10 @@ dropped.
 | `GET /threat-map` | Detections aggregated to map points: lat, lon, country, count, worst verdict. |
 | `GET /stats` | Live counters: packets/sec, unique IPs, drops, suspicious count, pipeline health. |
 | `GET /telemetry?page=&page_size=` | Raw per-packet telemetry, kept queryable but separate. |
+| `POST /triage/<id>` | On-demand AI triage for one detection (cached on the row). |
+| `POST /report/<id>` | Generate (or return the cached) incident report for one detection. |
+| `GET /report/<id>.md` | Markdown export of the cached report (404 until generated). |
+| `GET /report/<id>/view` | Print-optimized HTML report view (browser → Save as PDF). |
 
 ### Demo data
 

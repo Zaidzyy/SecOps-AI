@@ -42,7 +42,7 @@ PUBLIC_ENDPOINTS = {"auth.login", "auth.register", "static"}
 
 # Endpoints that are HTML pages: an anonymous browser is redirected to the
 # login form. Everything not listed is API-shaped and gets a plain 401 JSON.
-PAGE_ENDPOINTS = {"home"}
+PAGE_ENDPOINTS = {"home", "report_view"}
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 PASSWORD_MIN_LEN = 8

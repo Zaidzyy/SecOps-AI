@@ -379,8 +379,43 @@ function feedRow(d) {
         btn.title = "Run AI triage on this detection (advisory)";
         btn.addEventListener("click", () => openTriage(d.id));
         row.appendChild(btn);
+
+        // Incident report (Feature 5): generate (or fetch the cached) report,
+        // then open the print-optimized view — which links the .md download.
+        const rbtn = el("button", "btn-triage btn-report", "report");
+        rbtn.title = "Generate the incident report for this detection (advisory)";
+        rbtn.addEventListener("click", () => openReport(d.id, rbtn));
+        row.appendChild(rbtn);
     }
     return row;
+}
+
+/* ---------- Incident report (Feature 5) ----------
+ * POST /report/<id> aggregates Features 1-4 server-side and synthesizes the
+ * narrative (or returns the cached report). On success the print view opens
+ * in a new tab; the view carries the Markdown download link. */
+
+async function openReport(id, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "generating…";
+    try {
+        const res = await fetch(`/report/${id}`, { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+            btn.textContent = "unavailable";
+            btn.title = (data.error || "report failed") +
+                (data.reason ? ` — ${data.reason}` : "");
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
+            return;
+        }
+        window.open(`/report/${id}/view`, "_blank", "noopener");
+        btn.textContent = original;
+        btn.disabled = false;
+    } catch {
+        btn.textContent = "failed";
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
+    }
 }
 
 /* ---------- AI triage modal (Feature 2) ----------

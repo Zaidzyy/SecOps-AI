@@ -19,8 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt -r requirements-deploy.txt
 
 # Runtime code + assets, explicitly listed: nothing training-related, no
 # tests, no dev database. models/ is <1 MB (GBT + scaler + metadata).
-COPY app_groq.py auth.py cnn_engine.py config.py enrichment.py \
-     flow_tracker.py migrations.py ollama_lib.py pipeline.py storage.py ./
+COPY alerts.py app_groq.py attack_mapping.py auth.py cnn_engine.py config.py \
+     enrichment.py flow_tracker.py migrations.py ollama_lib.py pipeline.py \
+     rag.py reports.py storage.py triage.py ./
 COPY models/ models/
 COPY static/ static/
 COPY templates/ templates/

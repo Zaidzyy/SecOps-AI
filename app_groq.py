@@ -20,6 +20,7 @@ import os
 
 import json
 
+import alerts
 import auth
 import config
 import flow_tracker as ft
@@ -28,6 +29,7 @@ import enrichment
 import migrations
 import pipeline
 import rag
+import reports
 import storage
 import triage
 
@@ -475,6 +477,23 @@ def _handle_completed_flow(flow):
                           if result.get("technique_id")
                           else " [technique unattributed]")
     save_log(f"CNN flow verdict: {verdict} ({confidence:.2f}){technique_note} - {summary}")
+
+    # Outbound CRITICAL alert (Feature 5, Part B). consider() is a no-op when
+    # SECOPS_ALERT_WEBHOOK is unset, throttles itself, and never raises --
+    # safe to call inline on the worker for every classified flow.
+    alert = alerts.consider({
+        "verdict": verdict, "confidence": confidence, "src_ip": src,
+        "technique_id": result.get("technique_id"),
+        "technique_name": result.get("technique_name"),
+        "tactic": result.get("tactic"),
+        "abuse_score": reputation.get("abuse_score"),
+        "rep_source": reputation.get("source"),
+        "summary": summary,
+    })
+    if alert:
+        save_log(f"CRITICAL alert webhook sent ({alert['alert']['trigger']}): "
+                 f"{alert['text']}")
+
     socketio.emit('cnn_verdict', {
         "ip": src, "verdict": verdict, "confidence": confidence,
         "summary": summary, "country": country,
@@ -976,6 +995,89 @@ def triage_detection(detection_id):
     except Exception as e:
         print(f"❌ Error triaging detection {detection_id}: {e}")
         return jsonify({"error": "triage failed"}), 500
+
+
+@app.route('/report/<int:detection_id>', methods=['POST'])
+def report_detection(detection_id):
+    """Generate (or return the cached) incident report for one detection
+    (Feature 5, Part A). Same operating contract as /triage/<id>: operator-
+    triggered (one Groq call per generation), cached on the detection row so
+    re-opening never re-bills, login-gated by the default-deny auth gate, and
+    every failure mode degrades to clean JSON -- 404 for a bad id, 503 when
+    Groq is absent/unreachable, never a crash."""
+    try:
+        with get_db_connection() as conn:
+            det = storage.fetch_detection(conn, detection_id)
+            if det is None:
+                return jsonify({"error": "detection not found"}), 404
+            if det.get("report_json"):
+                return jsonify({"detection_id": detection_id, "cached": True,
+                                "report": json.loads(det["report_json"])})
+
+            try:
+                report = reports.generate_report(conn, det)
+            except triage.TriageUnavailable as e:
+                return jsonify({"error": "report unavailable",
+                                "reason": str(e)}), 503
+
+            # Direct one-row UPDATE on this connection (see storage.save_report
+            # for why this bypasses the batched writer).
+            storage.save_report(conn, detection_id, json.dumps(report))
+            conn.commit()
+
+        save_log(f"Incident report generated for detection #{detection_id}: "
+                 f"severity={report['severity']}")
+        return jsonify({"detection_id": detection_id, "cached": False,
+                        "report": report})
+    except Exception as e:
+        print(f"❌ Error generating report for detection {detection_id}: {e}")
+        return jsonify({"error": "report failed"}), 500
+
+
+def _cached_report(detection_id):
+    """The stored report for a detection, or None. Export routes serve ONLY
+    the cache: GET stays side-effect-free and can never bill Groq -- the
+    operator generates via POST /report/<id> first (the UI does this)."""
+    with get_db_connection() as conn:
+        det = storage.fetch_detection(conn, detection_id)
+    if det is None or not det.get("report_json"):
+        return None
+    return json.loads(det["report_json"])
+
+
+@app.route('/report/<int:detection_id>.md', methods=['GET'])
+def report_markdown(detection_id):
+    """Markdown export (the primary, zero-dependency format)."""
+    try:
+        report = _cached_report(detection_id)
+        if report is None:
+            return jsonify({"error": "no report generated for this detection",
+                            "hint": f"POST /report/{detection_id} first"}), 404
+        md = reports.to_markdown(report)
+        return app.response_class(
+            md, mimetype="text/markdown; charset=utf-8",
+            headers={"Content-Disposition":
+                     f"attachment; filename=incident-report-{detection_id}.md"})
+    except Exception as e:
+        print(f"❌ Error exporting report {detection_id}: {e}")
+        return jsonify({"error": "report export failed"}), 500
+
+
+@app.route('/report/<int:detection_id>/view', methods=['GET'])
+def report_view(detection_id):
+    """Print-optimized HTML report view. Self-contained (inline CSS, no CDN),
+    styled for the browser's own Print -> Save as PDF -- which is the PDF
+    path, deliberately: no PDF library, no image growth."""
+    try:
+        report = _cached_report(detection_id)
+        if report is None:
+            return render_template('report.html', report=None,
+                                   detection_id=detection_id), 404
+        return render_template('report.html', report=report,
+                               detection_id=detection_id)
+    except Exception as e:
+        print(f"❌ Error rendering report view {detection_id}: {e}")
+        return jsonify({"error": "report view failed"}), 500
 
 
 @app.route('/pipeline-stats', methods=['GET'])

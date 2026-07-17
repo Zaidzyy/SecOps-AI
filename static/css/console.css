@@ -381,6 +381,11 @@ button { font: inherit; cursor: pointer; }
 }
 .btn-triage:hover { border-color: var(--accent); background: var(--accent-soft); }
 
+/* Incident report action (Feature 5): same chip styling, its own hue so the
+   two AI actions read as siblings, not duplicates. */
+.btn-report { color: var(--warn, #e0a83c); margin-left: 4px; }
+.btn-report:disabled { opacity: 0.6; cursor: wait; }
+
 .modal-overlay {
     position: fixed; inset: 0; z-index: 50;
     background: rgba(2, 6, 12, 0.72);

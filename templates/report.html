@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<!-- Print-optimized incident report view (Feature 5). Self-contained: inline
+     CSS, no CDN, no scripts beyond the print button — the PDF path is the
+     browser's own Print -> Save as PDF, so the container needs no PDF library.
+     All report values render through Jinja autoescaping: the narrative is LLM
+     output and must never reach the page as raw HTML. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if report %}{{ report.title }}{% else %}Incident report{% endif %}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.55 Georgia, "Times New Roman", serif;
+    color: #1a2233; background: #f3f4f7; margin: 0;
+  }
+  .sheet {
+    max-width: 820px; margin: 24px auto; padding: 48px 56px;
+    background: #fff; border: 1px solid #d8dce4;
+  }
+  .toolbar { max-width: 820px; margin: 16px auto 0; display: flex; gap: 8px; }
+  .toolbar a, .toolbar button {
+    font: 13px system-ui, sans-serif; padding: 6px 14px; cursor: pointer;
+    border: 1px solid #33415c; background: #33415c; color: #fff;
+    text-decoration: none; border-radius: 3px;
+  }
+  .toolbar .secondary { background: #fff; color: #33415c; }
+  h1 { font-size: 21px; margin: 0 0 6px; }
+  h2 {
+    font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+    color: #47536b; border-bottom: 1px solid #d8dce4;
+    padding-bottom: 4px; margin: 26px 0 10px;
+  }
+  .advisory {
+    font: 12px system-ui, sans-serif; color: #7a4a00; background: #fdf3e0;
+    border: 1px solid #e8cf9e; padding: 8px 12px; margin: 14px 0;
+  }
+  .meta { font: 12px system-ui, sans-serif; color: #5b6478; }
+  .sev {
+    display: inline-block; font: bold 11px system-ui, sans-serif;
+    letter-spacing: .06em; text-transform: uppercase; padding: 2px 10px;
+    border-radius: 3px; color: #fff; background: #5b6478; vertical-align: 2px;
+  }
+  .sev-low { background: #2e7d32; }  .sev-medium { background: #b58900; }
+  .sev-high { background: #d2622a; } .sev-critical { background: #b02a2a; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font: 12.5px system-ui, sans-serif; margin: 8px 0;
+  }
+  th, td { border: 1px solid #d8dce4; padding: 5px 9px; text-align: left; }
+  th { background: #eef0f4; font-weight: 600; }
+  td.focal { font-weight: 600; }
+  ol, ul { margin: 6px 0; padding-left: 22px; }
+  .gaps { color: #7a4a00; }
+  .footer {
+    margin-top: 30px; padding-top: 10px; border-top: 1px solid #d8dce4;
+    font: 11px system-ui, sans-serif; color: #7d8496;
+  }
+  @media print {
+    body { background: #fff; }
+    .sheet { border: 0; margin: 0; padding: 0; max-width: none; }
+    .toolbar { display: none; }
+    h2 { break-after: avoid; }
+    table, .advisory { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+{% if not report %}
+<div class="sheet">
+  <h1>No report generated</h1>
+  <p>Detection #{{ detection_id }} has no cached incident report yet.
+     Generate one from the console (the “report” action on a suspicious
+     detection), then reload this page.</p>
+</div>
+{% else %}
+<div class="toolbar">
+  <button onclick="window.print()">Print / Save as PDF</button>
+  <a class="secondary" href="/report/{{ detection_id }}.md">Download Markdown</a>
+</div>
+<div class="sheet">
+  <h1>{{ report.title }}</h1>
+  <div class="meta">
+    <span class="sev sev-{{ report.severity }}">{{ report.severity }}</span>
+    &nbsp;generated {{ report.generated_at }} · model {{ report.model }}
+  </div>
+  <div class="advisory">{{ report.label }} — the narrative below was
+    synthesized by an LLM from aggregated SecOps-AI data; the factual tables
+    are built directly from database rows. Advisory, for a human operator.</div>
+
+  <h2>Executive summary</h2>
+  <p>{{ report.executive_summary or "—" }}</p>
+
+  <h2>Narrative</h2>
+  <p>{{ report.narrative or "—" }}</p>
+
+  <h2>Detection</h2>
+  <table>
+    <tr><th>Detection id</th><td>#{{ report.detection.id }}</td>
+        <th>Verdict</th><td>{{ report.detection.cnn_verdict }}
+            ({{ report.detection.cnn_confidence }})</td></tr>
+    <tr><th>Source</th><td>{{ report.detection.src_ip }}</td>
+        <th>Destination</th><td>{{ report.detection.dst_ip }}:{{ report.detection.dst_port }}</td></tr>
+    <tr><th>Protocol</th><td>{{ report.detection.proto }}</td>
+        <th>Country</th><td>{{ report.detection.country or "—" }}</td></tr>
+    <tr><th>Duration (s)</th><td>{{ report.detection.duration_s }}</td>
+        <th>Timestamp</th><td>{{ report.detection.timestamp }}</td></tr>
+    <tr><th>Packets fwd/bwd</th><td>{{ report.detection.fwd_packets }} / {{ report.detection.bwd_packets }}</td>
+        <th>Bytes fwd/bwd</th><td>{{ report.detection.fwd_bytes }} / {{ report.detection.bwd_bytes }}</td></tr>
+  </table>
+
+  <h2>MITRE ATT&amp;CK mapping</h2>
+  <ul>
+    <li><strong>Technique:</strong>
+      {{ report.attack_mapping.technique_id or "unattributed" }}
+      {{ report.attack_mapping.technique_name or "" }}</li>
+    <li><strong>Tactic:</strong> {{ report.attack_mapping.tactic or "—" }}</li>
+    <li><strong>Attack family (Stage-2 attributor):</strong>
+      {{ report.attack_mapping.attack_family or "unattributed" }}</li>
+  </ul>
+
+  <h2>Indicators (IOCs)</h2>
+  <table>
+    <tr><th>Type</th><th>Value</th><th>Role</th></tr>
+    {% for ioc in report.iocs %}
+    <tr><td>{{ ioc.type }}</td>
+        <td>{% if ioc.value is iterable and ioc.value is not string %}{{ ioc.value | join(", ") }}{% else %}{{ ioc.value }}{% endif %}</td>
+        <td>{{ ioc.role }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Timeline</h2>
+  <table>
+    <tr><th>Time (UTC)</th><th>Detection</th><th>Event</th></tr>
+    {% for e in report.timeline %}
+    <tr><td>{{ e.timestamp }}</td>
+        <td class="{{ 'focal' if e.focal }}">#{{ e.detection_id }}{{ " (this report)" if e.focal }}</td>
+        <td>{{ e.event }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Source IP activity</h2>
+  <ul>
+    <li>Recorded flows involving the source:
+        {{ report.activity_summary.total_flows }}
+        ({{ report.activity_summary.suspicious_flows }} suspicious)</li>
+    <li>Distinct destination ports touched:
+        {{ report.activity_summary.distinct_dst_ports }}</li>
+    <li>Total suspicious detections from the source:
+        {{ report.activity_summary.total_suspicious_detections }}</li>
+  </ul>
+
+  <h2>Third-party reputation</h2>
+  {% if report.reputation.source %}
+  <ul>
+    <li>Source: {{ report.reputation.source }}</li>
+    <li>Abuse confidence score:
+        {{ report.reputation.abuse_score if report.reputation.abuse_score is not none
+           else "— (source provides report counts only)" }}</li>
+    <li>Reports: {{ report.reputation.reports if report.reputation.reports is not none else "—" }}</li>
+  </ul>
+  {% else %}
+  <p>No third-party reputation data was available for the source IP at
+     classification time.</p>
+  {% endif %}
+
+  <h2>Prior AI triage</h2>
+  {% if report.triage %}
+  <ul>
+    <li>Severity: {{ report.triage.severity }}</li>
+    <li>Summary: {{ report.triage.summary }}</li>
+    <li>Likely intent: {{ report.triage.likely_intent }}</li>
+    <li>Generated: {{ report.triage.generated_at }}</li>
+  </ul>
+  {% else %}
+  <p>No triage has been run on this detection.</p>
+  {% endif %}
+
+  <h2>Recommended actions (advisory)</h2>
+  <ol>
+    {% for a in report.recommended_actions %}<li>{{ a }}</li>{% endfor %}
+    {% if not report.recommended_actions %}<li>—</li>{% endif %}
+  </ol>
+
+  <h2>Source detections cited</h2>
+  <p>{% for c in report.cited_detections %}#{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
+     {% if not report.cited_detections %}—{% endif %}</p>
+
+  <h2>Known data gaps</h2>
+  <ul class="gaps">
+    {% for g in report.data_gaps %}<li>{{ g }}</li>{% endfor %}
+    {% if not report.data_gaps %}<li>none</li>{% endif %}
+  </ul>
+
+  <div class="footer">{{ report.label }} — SecOps-AI incident report for
+    detection #{{ report.detection_id }} · {{ report.generated_at }}</div>
+</div>
+{% endif %}
+</body>
+</html>

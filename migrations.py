@@ -144,6 +144,15 @@ TRIAGE_COLUMNS = [
 # detector's opinion. NULLable throughout: rows written with no AbuseIPDB key
 # (blocklist.de path, or no lookup at all) legitimately have no score, and
 # rep_source records which service actually answered.
+# Migration 0005: cached incident report on detections (Feature 5). Same
+# shape and rationale as the triage cache (0003): NULL until an operator
+# generates a report; persisted so re-opening never re-bills the LLM.
+REPORT_MIGRATION = "0005_detection_report"
+REPORT_COLUMNS = [
+    ("report_json", "TEXT"),
+    ("report_at", "DATETIME"),
+]
+
 REPUTATION_MIGRATION = "0004_reputation_scores"
 REPUTATION_TELEMETRY_COLUMNS = [
     ("abuse_score", "INTEGER"),
@@ -302,5 +311,15 @@ def migrate(conn: sqlite3.Connection, verbose: bool = False) -> dict:
         if verbose:
             print(f"[OK] Migration {REPUTATION_MIGRATION}: telemetry + detections "
                   f"now carry third-party reputation columns.")
+
+    if not applied(conn, REPORT_MIGRATION):
+        existing = _columns(conn, "detections")
+        for name, sqltype in REPORT_COLUMNS:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE detections ADD COLUMN {name} {sqltype}")
+        _mark_applied(conn, REPORT_MIGRATION)
+        if verbose:
+            print(f"[OK] Migration {REPORT_MIGRATION}: detections now carries "
+                  f"{', '.join(n for n, _ in REPORT_COLUMNS)}.")
     conn.commit()
     return counts
